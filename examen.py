@@ -2,11 +2,14 @@
 """Examen: pass-by-reference notes for agent swarms (see SPEC.md).
 
 Notes are plain markdown files under .swarmnotes/; this CLI only makes
-listing, fetching and linting them cheaper. Stdlib only.
+listing, fetching and linting them cheaper. Stdlib only. The optional MCP
+server (examen_mcp.py) is a separate module so this file stays zero-dependency.
 
-The storage directory stays .swarmnotes/ in v0.2 so existing dogfood paths
-keep working. `swarmnotes` on PATH is an alias of this program.
+The storage directory stays .swarmnotes/. `swarmnotes` on PATH is an alias
+of this program.
 """
+__version__ = "0.3.0"
+
 import argparse
 import os
 import re
@@ -167,8 +170,9 @@ def valid_date(value):
 
 # --- commands ------------------------------------------------------------
 
-def cmd_init(args):
-    root = Path(args.path) / DIR_NAME
+def init_store(path="."):
+    """Create .swarmnotes/ and the default report-format note. Idempotent."""
+    root = Path(path) / DIR_NAME
     (root / "_shared").mkdir(parents=True, exist_ok=True)
     meta = {
         "kind": "format",
@@ -180,7 +184,57 @@ def cmd_init(args):
         create(root, "_shared/report-format", meta, DEFAULT_REPORT_FORMAT)
     except NoteError:
         pass  # already initialised
-    print(root)
+    return root
+
+
+def cmd_init(args):
+    print(init_store(args.path))
+
+
+def parse_tags(tags):
+    """Accept a comma-separated string (CLI) or a list of slugs (MCP)."""
+    if tags is None:
+        return []
+    if isinstance(tags, str):
+        items = [part.strip() for part in tags.split(",") if part.strip()]
+    elif isinstance(tags, (list, tuple)):
+        items = []
+        for part in tags:
+            if not isinstance(part, str) or not part.strip():
+                raise NoteError("invalid tags")
+            items.append(part.strip())
+    else:
+        raise NoteError("invalid tags")
+    bad = [item for item in items if not TAG_RE.match(item)]
+    if bad:
+        raise NoteError(f"invalid tags: {', '.join(bad)}")
+    return items
+
+
+def add_note(root, note_id, kind, summary, body, author=None, tags=None):
+    """Validate and create one note. Returns the id. Does not overwrite."""
+    if kind not in KINDS:
+        raise NoteError(f"kind must be one of: {', '.join(KINDS)}")
+    if not isinstance(summary, str):
+        raise NoteError("missing summary")
+    summary = summary.strip()
+    if not summary:
+        raise NoteError("missing summary")
+    if len(summary) > SUMMARY_MAX:
+        raise NoteError(f"summary is {len(summary)} chars; max {SUMMARY_MAX}")
+    if not isinstance(body, str) or not body.strip():
+        raise NoteError("empty body (pass --body or pipe text on stdin)")
+    meta = {"kind": kind, "summary": summary}
+    if author is not None:
+        if not isinstance(author, str) or not author.strip():
+            raise NoteError("empty author")
+        meta["author"] = author.strip()
+    meta["updated"] = date.today().isoformat()
+    parsed = parse_tags(tags)
+    if parsed:
+        meta["tags"] = parsed
+    create(root, note_id, meta, body)
+    return note_id
 
 
 def _stdin_body():
@@ -191,61 +245,56 @@ def _stdin_body():
 
 
 def cmd_new(args):
-    root = find_root()
-    if args.kind not in KINDS:
-        raise NoteError(f"kind must be one of: {', '.join(KINDS)}")
-    summary = args.summary.strip()
-    if not summary:
-        raise NoteError("missing summary")
-    if len(summary) > SUMMARY_MAX:
-        raise NoteError(f"summary is {len(summary)} chars; max {SUMMARY_MAX}")
     body = args.body if args.body is not None else _stdin_body()
-    if not body.strip():
-        raise NoteError("empty body (pass --body or pipe text on stdin)")
-    meta = {"kind": args.kind, "summary": summary}
-    if args.author is not None:
-        author = args.author.strip()
-        if not author:
-            raise NoteError("empty author")
-        meta["author"] = author
-    meta["updated"] = date.today().isoformat()
-    if args.tags:
-        tags = [t.strip() for t in args.tags.split(",") if t.strip()]
-        bad = [t for t in tags if not TAG_RE.match(t)]
-        if bad:
-            raise NoteError(f"invalid tags: {', '.join(bad)}")
-        meta["tags"] = tags
-    create(root, args.id, meta, body)
-    print(args.id)
+    print(add_note(find_root(), args.id, args.kind, args.summary, body, args.author, args.tags))
+
+
+def list_notes(root, scope="", kind=None, tag=None, include_superseded=False):
+    """Return listing rows. Superseded notes are omitted unless asked for."""
+    if kind and kind not in KINDS:
+        raise NoteError(f"kind must be one of: {', '.join(KINDS)}")
+    if tag and not TAG_RE.match(tag):
+        raise NoteError(f"invalid tag: {tag}")
+    rows = []
+    for note_id, path in iter_notes(root, (scope or "").strip("/")):
+        meta, _ = parse(read_text(path))
+        status = meta.get("status", "active")
+        if status == "superseded" and not include_superseded:
+            continue
+        if kind and meta.get("kind") != kind:
+            continue
+        tags = meta.get("tags") or []
+        if tag and (not isinstance(tags, list) or tag not in tags):
+            continue
+        row = {
+            "id": note_id,
+            "kind": meta.get("kind", "?"),
+            "summary": meta.get("summary", ""),
+            "status": status,
+        }
+        if status == "superseded":
+            row["superseded_by"] = meta.get("superseded_by", "?")
+        rows.append(row)
+    return rows
 
 
 def cmd_ls(args):
-    root = find_root()
-    if args.kind and args.kind not in KINDS:
-        raise NoteError(f"kind must be one of: {', '.join(KINDS)}")
-    if args.tag and not TAG_RE.match(args.tag):
-        raise NoteError(f"invalid tag: {args.tag}")
-    rows = []
-    for note_id, path in iter_notes(root, args.scope.strip("/")):
-        meta, _ = parse(read_text(path))
-        status = meta.get("status", "active")
-        if status == "superseded" and not args.all:
-            continue
-        if args.kind and meta.get("kind") != args.kind:
-            continue
-        tags = meta.get("tags") or []
-        if args.tag and (not isinstance(tags, list) or args.tag not in tags):
-            continue
-        if status == "superseded":
-            mark = f" [-> {meta.get('superseded_by', '?')}]"
-        elif status == "draft":
+    rows = list_notes(
+        find_root(),
+        scope=args.scope,
+        kind=args.kind,
+        tag=args.tag,
+        include_superseded=args.all,
+    )
+    width = max((len(row["id"]) for row in rows), default=0)
+    for row in rows:
+        if row["status"] == "superseded":
+            mark = f" [-> {row.get('superseded_by', '?')}]"
+        elif row["status"] == "draft":
             mark = " [draft]"
         else:
             mark = ""
-        rows.append((note_id, meta.get("kind", "?"), meta.get("summary", "") + mark))
-    width = max((len(r[0]) for r in rows), default=0)
-    for note_id, kind, summary in rows:
-        print(f"{note_id:<{width}}  {kind:<10}  {summary}")
+        print(f"{row['id']:<{width}}  {row['kind']:<10}  {row['summary']}{mark}")
 
 
 def resolve(root, note_id):
@@ -290,20 +339,25 @@ def cmd_get(args):
     return 1 if failed else 0
 
 
-def cmd_supersede(args):
-    root = find_root()
-    if args.old == args.new:
+def supersede_note(root, old, new):
+    """Mark old as replaced by new. new must resolve to a live note."""
+    if old == new:
         raise NoteError("a note cannot supersede itself")
-    path = note_path(root, args.old)
-    meta, body = load(root, args.old)
-    _, _, _, chain = resolve(root, args.new)
-    if args.old in chain:
-        raise NoteError(f"supersede cycle: {' -> '.join([args.old, *chain])}")
+    path = note_path(root, old)
+    meta, body = load(root, old)
+    _, _, _, chain = resolve(root, new)
+    if old in chain:
+        raise NoteError(f"supersede cycle: {' -> '.join([old, *chain])}")
     meta["status"] = "superseded"
-    meta["superseded_by"] = args.new
+    meta["superseded_by"] = new
     meta["updated"] = date.today().isoformat()
     path.write_text(render(meta, body), encoding="utf-8")
-    print(f"{args.old} -> {args.new}")
+    return old, new
+
+
+def cmd_supersede(args):
+    old, new = supersede_note(find_root(), args.old, args.new)
+    print(f"{old} -> {new}")
 
 
 def frontmatter_issues(text):

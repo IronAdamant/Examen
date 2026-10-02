@@ -7,7 +7,7 @@ to (or that they find relevant in their own scope), and write their findings
 back as notes so siblings and the parent can reference them too.
 
 The format is plain markdown files. Any agent that can read and write files can
-participate; the `examen` CLI and any future MCP server are conveniences over
+participate; the `examen` CLI and the optional MCP server are conveniences over
 the same files. `swarmnotes` is an alias of the same CLI.
 
 ## 1. Layout
@@ -26,8 +26,8 @@ the same files. `swarmnotes` is an alias of the same CLI.
 
 - The root is the nearest `.swarmnotes/` directory walking up from the working
   directory, or `$SWARMNOTES_DIR` if set.
-- The storage directory stays `.swarmnotes/` in v0.2 so existing dogfood paths
-  keep working.
+- The storage directory stays `.swarmnotes/` so existing paths keep working.
+  v0.3 does not rename it.
 - A **scope** is any directory under the root. Give each branch of a swarm its
   own scope so listings stay small no matter how big the swarm gets.
 - `_shared` is reserved for notes every agent in the swarm may need.
@@ -192,8 +192,13 @@ followed.
 
 ## 8. Versioning
 
-This is v0.2. The format will change based on real use; breaking changes bump
-the minor version until 1.0. v0.2 keeps the `.swarmnotes/` directory and
-`$SWARMNOTES_DIR`. It tightens lint relative to the v0.1 draft: structural
-frontmatter, tags, dates, empty bodies, and supersede chains are errors, and
-`get` / `supersede` refuse a chain that does not end on a live note.
+This is v0.3. The note format is the same as v0.2. v0.3 adds an optional MCP
+server over these files (`examen_init`, `examen_ls`, `examen_get`,
+`examen_new`, `examen_supersede`, `examen_check`), installed with
+`pip install 'examen[mcp]'`. The core CLI stays on the standard library.
+
+The format will change based on real use; breaking changes bump the minor
+version until 1.0. `.swarmnotes/` and `$SWARMNOTES_DIR` stay. v0.2 made
+structural frontmatter, tags, dates, empty bodies, and supersede chains into
+lint errors, and `get` / `supersede` refuse a chain that does not end on a
+live note.

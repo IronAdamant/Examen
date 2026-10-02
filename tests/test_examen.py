@@ -356,12 +356,20 @@ class RepoTest(unittest.TestCase):
         snippet = (REPO / "AGENTS.snippet.md").read_text(encoding="utf-8")
         _, body = examen.parse(skill)
         self.assertEqual(body, snippet)
+        for line in ("Task:", "Read first:", "Your scope:", "Done when:", "examen_get"):
+            self.assertIn(line, snippet)
+        brief = (REPO / "templates" / "brief.md").read_text(encoding="utf-8")
+        for line in ("Task:", "Read first:", "Your scope:", "Done when:"):
+            self.assertIn(line, brief)
 
     def test_readme_names_examen_once(self):
         readme = (REPO / "README.md").read_text(encoding="utf-8")
         former = "Swarm" + "Notes"
         self.assertTrue(readme.startswith("# Examen\n"))
-        self.assertIn("stays `.swarmnotes/` in v0.2", readme)
+        self.assertIn("`.swarmnotes/`", readme)
+        self.assertIn("no third-party dependencies", readme)
+        self.assertIn("examen[mcp]", readme)
+        self.assertIn("examen-mcp", readme)
         self.assertEqual(readme.count(former), 1)
         hits = []
         for path in REPO.rglob("*"):
@@ -373,14 +381,25 @@ class RepoTest(unittest.TestCase):
                 hits.append(path.relative_to(REPO).as_posix())
         self.assertEqual(hits, ["README.md"])
 
-    def test_pyproject_is_stdlib_0_2_0(self):
+    def test_pyproject_core_stays_zero_dep(self):
         text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('name = "examen"', text)
-        self.assertIn('version = "0.2.0"', text)
+        self.assertIn('version = "0.3.0"', text)
         self.assertIn("dependencies = []", text)
         self.assertIn('examen = "examen:main"', text)
         self.assertIn('swarmnotes = "examen:main"', text)
+        self.assertIn('examen-mcp = "examen_mcp:main"', text)
+        self.assertIn("[project.optional-dependencies]", text)
+        self.assertIn('mcp = ["mcp>=2.0,<3"]', text)
+        self.assertEqual(examen.__version__, "0.3.0")
         self.assertTrue((REPO / "LICENSE").read_text(encoding="utf-8").startswith("MIT License\n"))
+        changelog = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
+        self.assertIn("## 0.3.0", changelog)
+        self.assertIn("## 0.2.0", changelog)
+        contributing = (REPO / "CONTRIBUTING.md").read_text(encoding="utf-8")
+        self.assertIn("unittest", contributing)
+        self.assertIn("SPEC.md", contributing)
+        self.assertIn("standard library", contributing)
 
     def test_module_imports_stdlib_only(self):
         tree = ast.parse((REPO / "examen.py").read_text(encoding="utf-8"))
