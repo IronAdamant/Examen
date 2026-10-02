@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "examen"
-version = "0.2.0"
+version = "0.3.0"
 description = "Examen: pass-by-reference notes for agent swarms."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -17,9 +17,14 @@ dependencies = []
 Homepage = "https://github.com/IronAdamant/Examen"
 Repository = "https://github.com/IronAdamant/Examen"
 
+[project.optional-dependencies]
+# Official MCP Python SDK (v2). Not imported by the core CLI. Needs Python >=3.10.
+mcp = ["mcp>=2.0,<3"]
+
 [project.scripts]
 examen = "examen:main"
 swarmnotes = "examen:main"
+examen-mcp = "examen_mcp:main"
 
 [tool.setuptools]
-py-modules = ["examen"]
+py-modules = ["examen", "examen_mcp"]

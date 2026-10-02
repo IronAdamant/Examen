@@ -3,7 +3,7 @@
 This project uses Examen (`.swarmnotes/`) to share context between agents
 by reference. A note is a short markdown file; its ID is its path under
 `.swarmnotes/` without `.md` (e.g. `net/retry-decision`).
-The storage directory stays `.swarmnotes/` in v0.2.
+The storage directory stays `.swarmnotes/`.
 
 **When you spawn agents (parent):**
 - Anything more than one child needs (decisions, constraints, conventions,
@@ -17,7 +17,7 @@ The storage directory stays `.swarmnotes/` in v0.2.
   ```
 - Always include `_shared/report-format` so reports come back short.
 - Changed your mind? Make a small fix by editing the note in place. If the
-  note is being replaced, write a new one and run `examen supersede OLD NEW`.
+  note is being replaced, write a new one and supersede the old id.
 
 **When you are spawned (child):**
 - Read every note in "Read first" before doing anything else.
@@ -28,18 +28,33 @@ The storage directory stays `.swarmnotes/` in v0.2.
 - Only edit notes you wrote. If you disagree with one, write a `finding` and
   flag it in your report.
 
-**Commands** (`examen` CLI; `swarmnotes` is the same command; plain file reads and writes work too):
+**Prefer the MCP tools** when this host exposes them. They use the same
+`.swarmnotes/` files as the CLI:
+
+```
+examen_ls        scope, kind, include_superseded
+examen_get       one or more IDs; follows superseded notes
+examen_new       id, kind, summary, body, author, tags
+examen_supersede old, new
+examen_check
+examen_init      create .swarmnotes/ if it is missing
+```
+
+Otherwise use the CLI (`examen`; `swarmnotes` is the same command):
+
 ```
 examen ls [scope] [--kind K] [--tag T] [--all]
-examen get ID [ID...]                 # bodies; follows superseded notes
+examen get ID [ID...]
 examen new ID --kind K --summary "…" --author NAME --body "…"
 examen supersede OLD NEW
-examen check                          # lint
+examen check
 ```
+
 Kinds: decision, constraint, convention, context, format (parent);
 finding, attempt (child). Keep a summary to one line (≤ 100 chars) and a body
 under ~300 words. If it's longer, split it.
 
-Without the CLI: `ls -R .swarmnotes/` is the catalog and `cat .swarmnotes/<id>.md`
-is get. To create a note, write a new file with frontmatter (`kind`, `summary`,
-`author`, `updated`), but never overwrite an existing one.
+Without MCP or the CLI: `ls -R .swarmnotes/` is the catalog and
+`cat .swarmnotes/<id>.md` is get. To create a note, write a new file with
+frontmatter (`kind`, `summary`, `author`, `updated`), but never overwrite an
+existing one.

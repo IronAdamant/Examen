@@ -2,8 +2,8 @@
 
 The parent has made a few decisions about a fictional `acme` HTTP client and
 wants three children to work in parallel. The notes they share are in
-[`.swarmnotes/`](.swarmnotes/). Examen reads and lints that directory; the
-storage directory stays `.swarmnotes/` in v0.2.
+[`.swarmnotes/`](.swarmnotes/). Examen reads and lints that directory. The
+storage directory stays `.swarmnotes/`.
 
 ## 1. Parent writes notes once
 
@@ -85,3 +85,33 @@ python3 ../../examen.py ls net --kind decision --all
 python3 ../../examen.py get net/backoff-linear
 python3 ../../examen.py check
 ```
+
+## MCP smoke
+
+The MCP server reads this same directory. From the repo root, with no extra
+installed, the tool handlers are plain functions:
+
+```sh
+python3 -c '
+import os
+from examen_mcp import examen_check, examen_get, examen_ls
+os.chdir("examples/retry-swarm")
+print(examen_check())
+print(examen_ls("net", include_superseded=True))
+print(examen_get(["net/backoff-linear"]))
+'
+```
+
+`examen_get` on `net/backoff-linear` follows the link to `net/retry-decision`.
+
+To speak MCP, install the optional extra and leave the process on stdio (that
+is what Claude Code and Cursor launch):
+
+```sh
+pip install "examen[mcp]"
+cd examples/retry-swarm
+examen-mcp
+```
+
+Set `SWARMNOTES_DIR` to this `.swarmnotes/` path if the host does not start
+the process inside the example directory. Config snippets are in the README.
