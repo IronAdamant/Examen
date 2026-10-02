@@ -72,7 +72,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("kind must be", self.new("x", kind="nope")[2])
         self.assertIn("max 100", self.new("x", summary="y" * 101)[2])
         self.assertIn("missing summary", self.new("x", summary="   ")[2])
-        self.assertIn("invalid tags", self.new("x", body="b", "--tags", "Nope")[2])
+        self.assertIn("invalid tags", self.new("x", "decision", "s", "b", "--tags", "Nope")[2])
 
     def test_new_rejects_empty_body(self):
         code, _, err = self.new("e", body="  \n")
@@ -91,7 +91,7 @@ class CliTest(unittest.TestCase):
         self.assertIn("piped body", (Path(".swarmnotes") / "piped.md").read_text(encoding="utf-8"))
 
     def test_new_strips_summary_and_sets_updated(self):
-        code, _, err = self.new("s", summary="  hello  ", body="b", "--author", "parent")
+        code, _, err = self.new("s", "decision", "  hello  ", "b", "--author", "parent")
         self.assertEqual(code, 0, err)
         meta, _ = examen.load(Path(".swarmnotes"), "s")
         self.assertEqual(meta["summary"], "hello")
@@ -218,8 +218,8 @@ class CliTest(unittest.TestCase):
         self.assertIn("long: body is 400 words", out)
 
     def test_check_word_budget_is_warning(self):
-        self.new("edge", body="word " * 300, "--author", "p")
-        self.new("long", body="word " * 301, "--author", "p")
+        self.new("edge", "decision", "s", "word " * 300, "--author", "p")
+        self.new("long", "decision", "s", "word " * 301, "--author", "p")
         code, out, _ = run("check")
         self.assertEqual(code, 0, out)
         self.assertIn("long: body is 301 words", out)
@@ -359,16 +359,17 @@ class RepoTest(unittest.TestCase):
 
     def test_readme_names_examen_once(self):
         readme = (REPO / "README.md").read_text(encoding="utf-8")
+        former = "Swarm" + "Notes"
         self.assertTrue(readme.startswith("# Examen\n"))
         self.assertIn("stays `.swarmnotes/` in v0.2", readme)
-        self.assertEqual(readme.count("SwarmNotes"), 1)
+        self.assertEqual(readme.count(former), 1)
         hits = []
         for path in REPO.rglob("*"):
             if not path.is_file() or ".git" in path.parts or "__pycache__" in path.parts:
                 continue
             if path.suffix not in {".md", ".py", ".toml"} and path.name != "LICENSE":
                 continue
-            if "SwarmNotes" in path.read_text(encoding="utf-8"):
+            if former in path.read_text(encoding="utf-8"):
                 hits.append(path.relative_to(REPO).as_posix())
         self.assertEqual(hits, ["README.md"])
 
