@@ -42,7 +42,7 @@ examen_get       one or more IDs; follows superseded notes
 examen_new       id, kind, summary, body, author, tags
 examen_supersede old, new
 examen_check
-examen_init      create .swarmnotes/ if it is missing
+examen_init      create .swarmnotes/ if it is missing (cwd or SWARMNOTES_DIR only)
 ```
 
 Otherwise use the CLI (`examen`; `swarmnotes` is the same command):

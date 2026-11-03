@@ -46,17 +46,24 @@ keep working.
 
 ## Install
 
-The CLI has **no third-party dependencies**. `pip install examen` installs
-the command and nothing else. The MCP server is an optional extra and is the
-only install that depends on the official MCP Python SDK.
+The CLI has **no third-party dependencies**. Install it from this Git
+repository. The name `examen` on PyPI is a different project, and this
+package is not published there.
 
 ```sh
-pip install examen                 # CLI, zero dependencies (Python >= 3.9)
-pip install 'examen[mcp]'          # CLI + stdio MCP server (Python >= 3.10)
+pip install "git+https://github.com/IronAdamant/Examen"   # CLI (Python >= 3.9)
+pip install "examen[mcp] @ git+https://github.com/IronAdamant/Examen"  # CLI + MCP (Python >= 3.10)
 ```
 
-From a checkout, `python3 examen.py` is the same CLI. `uv tool install examen`
-works too. `swarmnotes` on `PATH` is an alias of `examen`.
+The second command is the only install that depends on the official MCP
+Python SDK. From a checkout, `python3 examen.py` is the same CLI.
+`uv tool install "git+https://github.com/IronAdamant/Examen"` works too.
+`swarmnotes` on `PATH` is an alias of `examen`.
+
+That other PyPI project also installs a command named `examen`. Install this
+repository into its own environment so the two commands do not overwrite
+each other. Asking the package index for the name examen, including an
+upgrade of that name, fetches the other project.
 
 ## CLI
 
@@ -88,7 +95,9 @@ Tools: `examen_init`, `examen_ls` (scope, kind, include_superseded),
 The server finds `.swarmnotes/` the same way the CLI does (walk up from the
 working directory, or `$SWARMNOTES_DIR`). Set `SWARMNOTES_DIR` to the absolute
 store path when the host does not start the process inside the project.
-`examen init` / `examen_init` creates the directory.
+`examen init` creates the directory. `examen_init` does that only for the
+server's current working directory, or for `SWARMNOTES_DIR` (the store
+itself, or the project directory that contains it). Any other path is an error.
 
 If `examen-mcp` is not on `PATH`, use `python3 -m examen_mcp` with the
 interpreter that has `examen[mcp]` installed.

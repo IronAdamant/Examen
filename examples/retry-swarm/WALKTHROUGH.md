@@ -108,7 +108,7 @@ To speak MCP, install the optional extra and leave the process on stdio (that
 is what Claude Code and Cursor launch):
 
 ```sh
-pip install "examen[mcp]"
+pip install "examen[mcp] @ git+https://github.com/IronAdamant/Examen"
 cd examples/retry-swarm
 examen-mcp
 ```

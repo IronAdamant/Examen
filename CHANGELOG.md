@@ -3,8 +3,13 @@
 ## 0.3.0 — 2026-10-02
 
 - Optional stdio MCP server over the same `.swarmnotes/` files as the CLI.
-  Install with `pip install 'examen[mcp]'` (official MCP Python SDK, Python
-  3.10+). The core `examen` command stays zero-dependency.
+  Install from GitHub with
+  `pip install "examen[mcp] @ git+https://github.com/IronAdamant/Examen"`
+  (official MCP Python SDK, Python 3.10+). This project is not published on
+  PyPI; that name belongs to a different package. The core `examen` command
+  stays zero-dependency.
+- `examen_init` creates a store only in the current working directory or at
+  `SWARMNOTES_DIR`.
 - Tools: `examen_init`, `examen_ls`, `examen_get`, `examen_new`,
   `examen_supersede`, `examen_check`.
 - Console script `examen-mcp`, or `python -m examen_mcp`.

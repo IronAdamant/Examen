@@ -22,3 +22,6 @@ Core tests are unittest and do not need the `mcp` package. Handler tests in
 `tests/test_examen_mcp.py` call the tool functions directly. The in-memory and
 stdio checks in that file run when `examen[mcp]` is installed; they do not
 use the network.
+
+GitHub Actions runs this suite on Ubuntu, macOS, and Windows. Python 3.9
+runs without the MCP extra. Python 3.10 and 3.13 install `mcp>=2.0,<3`.

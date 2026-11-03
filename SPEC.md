@@ -195,7 +195,10 @@ followed.
 This is v0.3. The note format is the same as v0.2. v0.3 adds an optional MCP
 server over these files (`examen_init`, `examen_ls`, `examen_get`,
 `examen_new`, `examen_supersede`, `examen_check`), installed with
-`pip install 'examen[mcp]'`. The core CLI stays on the standard library.
+`pip install "examen[mcp] @ git+https://github.com/IronAdamant/Examen"`.
+`examen_init` only creates a store in the current working directory or at
+`SWARMNOTES_DIR`. The core CLI stays on the standard library. This project
+is not published on PyPI.
 
 The format will change based on real use; breaking changes bump the minor
 version until 1.0. `.swarmnotes/` and `$SWARMNOTES_DIR` stay. v0.2 made

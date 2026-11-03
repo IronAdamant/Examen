@@ -170,9 +170,13 @@ def valid_date(value):
 
 # --- commands ------------------------------------------------------------
 
-def init_store(path="."):
-    """Create .swarmnotes/ and the default report-format note. Idempotent."""
-    root = Path(path) / DIR_NAME
+def ensure_store(root):
+    """Create a store directory and the default report-format note. Idempotent.
+
+    root is the store itself (whatever path find_root would return), not the
+    project directory above it.
+    """
+    root = Path(root)
     (root / "_shared").mkdir(parents=True, exist_ok=True)
     meta = {
         "kind": "format",
@@ -185,6 +189,11 @@ def init_store(path="."):
     except NoteError:
         pass  # already initialised
     return root
+
+
+def init_store(path="."):
+    """Create .swarmnotes/ under path and the default report-format note. Idempotent."""
+    return ensure_store(Path(path) / DIR_NAME)
 
 
 def cmd_init(args):

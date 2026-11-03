@@ -370,6 +370,12 @@ class RepoTest(unittest.TestCase):
         self.assertIn("no third-party dependencies", readme)
         self.assertIn("examen[mcp]", readme)
         self.assertIn("examen-mcp", readme)
+        self.assertIn('pip install "git+https://github.com/IronAdamant/Examen"', readme)
+        self.assertIn(
+            'pip install "examen[mcp] @ git+https://github.com/IronAdamant/Examen"',
+            readme,
+        )
+        self.assertNotIn("pypi.org", readme.lower())
         self.assertEqual(readme.count(former), 1)
         hits = []
         for path in REPO.rglob("*"):
@@ -381,11 +387,36 @@ class RepoTest(unittest.TestCase):
                 hits.append(path.relative_to(REPO).as_posix())
         self.assertEqual(hits, ["README.md"])
 
+    def test_docs_do_not_offer_a_pypi_install(self):
+        banned = (
+            "pip install examen",
+            "pip install 'examen",
+            'pip install "examen"',
+            "uv tool install examen",
+            "https://pypi.org",
+        )
+        hits = []
+        for path in REPO.rglob("*"):
+            if not path.is_file() or ".git" in path.parts or "__pycache__" in path.parts:
+                continue
+            if "tests" in path.parts:
+                continue
+            if path.suffix not in {".md", ".py", ".toml"} and path.name != "LICENSE":
+                continue
+            text = path.read_text(encoding="utf-8")
+            for phrase in banned:
+                if phrase in text:
+                    hits.append(f"{path.relative_to(REPO).as_posix()}: {phrase}")
+        self.assertEqual(hits, [])
+
     def test_pyproject_core_stays_zero_dep(self):
         text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
         self.assertIn('name = "examen"', text)
         self.assertIn('version = "0.3.0"', text)
         self.assertIn("dependencies = []", text)
+        self.assertIn("Private :: Do Not Upload", text)
+        self.assertIn("Not published on PyPI", text)
+        self.assertNotIn("pypi.org", text.lower())
         self.assertIn('examen = "examen:main"', text)
         self.assertIn('swarmnotes = "examen:main"', text)
         self.assertIn('examen-mcp = "examen_mcp:main"', text)

@@ -126,7 +126,11 @@ class HandlerTest(unittest.TestCase):
         finally:
             examen_mcp.build_server = real
         self.assertEqual(code, 1)
-        self.assertIn("examen[mcp]", err.getvalue())
+        self.assertIn(
+            'pip install "examen[mcp] @ git+https://github.com/IronAdamant/Examen"',
+            err.getvalue(),
+        )
+        self.assertNotIn("pip install 'examen[mcp]'", err.getvalue())
 
         def unrelated():
             exc = ImportError("pydantic")
@@ -150,7 +154,7 @@ class RepoMcpTest(unittest.TestCase):
                 mods.update(alias.name.split(".")[0] for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
                 mods.add(node.module.split(".")[0])
-        self.assertTrue(mods <= {"__future__", "sys", "examen"}, mods)
+        self.assertTrue(mods <= {"__future__", "sys", "os", "pathlib", "examen"}, mods)
 
     def test_example_handlers_follow_supersede(self):
         old = os.getcwd()
@@ -240,6 +244,132 @@ class ProtocolTest(unittest.TestCase):
         self.assertFalse(result.is_error)
         payload = json.loads(result.content[0].text)
         self.assertEqual([row["id"] for row in payload["notes"]], ["net/retry"])
+
+
+class InitPathTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.project = Path(self.tmp.name) / "project"
+        self.project.mkdir()
+        self.old_cwd = os.getcwd()
+        os.chdir(self.project)
+        os.environ.pop("SWARMNOTES_DIR", None)
+
+    def tearDown(self):
+        os.chdir(self.old_cwd)
+        os.environ.pop("SWARMNOTES_DIR", None)
+        self.tmp.cleanup()
+
+    def test_init_in_the_working_directory_is_idempotent(self):
+        first = examen_mcp.examen_init(".")
+        second = examen_mcp.examen_init(str(self.project))
+        root = Path(first["root"])
+        self.assertEqual(root, (self.project / ".swarmnotes").resolve())
+        self.assertEqual(Path(second["root"]), root)
+        self.assertEqual(first["report_format"], "_shared/report-format")
+        notes = list(root.rglob("*.md"))
+        self.assertEqual(notes, [root / "_shared" / "report-format.md"])
+
+    def test_path_that_resolves_to_the_working_directory_is_allowed(self):
+        Path("child").mkdir()
+        result = examen_mcp.examen_init(str(Path("child") / ".."))
+        self.assertEqual(Path(result["root"]), (self.project / ".swarmnotes").resolve())
+
+    def test_refuses_a_subdirectory(self):
+        Path("nested").mkdir()
+        with self.assertRaises(examen.NoteError) as raised:
+            examen_mcp.examen_init("nested")
+        self.assertIn("Refusing", str(raised.exception))
+        self.assertIn("current working directory", str(raised.exception))
+        self.assertFalse((self.project / "nested" / ".swarmnotes").exists())
+
+    def test_refuses_an_outside_path_and_does_not_create_it(self):
+        outside = Path(self.tmp.name) / "elsewhere"
+        with self.assertRaises(examen.NoteError) as raised:
+            examen_mcp.examen_init(str(outside))
+        message = str(raised.exception)
+        self.assertIn("elsewhere", message)
+        self.assertIn("SWARMNOTES_DIR", message)
+        self.assertFalse(outside.exists())
+        self.assertFalse((self.project / ".swarmnotes").exists())
+
+    def test_refuses_the_parent_directory(self):
+        with self.assertRaises(examen.NoteError):
+            examen_mcp.examen_init("..")
+        self.assertFalse((Path(self.tmp.name) / ".swarmnotes").exists())
+
+    def test_blank_path_is_refused(self):
+        with self.assertRaises(examen.NoteError):
+            examen_mcp.examen_init("   ")
+        self.assertFalse((self.project / ".swarmnotes").exists())
+
+    def test_non_string_path_is_refused(self):
+        with self.assertRaises(examen.NoteError):
+            examen_mcp.examen_init(None)
+
+    def test_init_accepts_swarmnotes_dir_outside_the_working_directory(self):
+        store = Path(self.tmp.name) / "outside" / ".swarmnotes"
+        os.environ["SWARMNOTES_DIR"] = str(store)
+        result = examen_mcp.examen_init(str(store))
+        self.assertEqual(Path(result["root"]), store.resolve())
+        self.assertTrue((store / "_shared" / "report-format.md").is_file())
+        self.assertFalse((self.project / ".swarmnotes").exists())
+        again = examen_mcp.examen_init(str(store))
+        self.assertEqual(Path(again["root"]), store.resolve())
+        self.assertEqual(len(list(store.rglob("*.md"))), 1)
+
+    def test_init_accepts_the_project_directory_of_swarmnotes_dir(self):
+        store = Path(self.tmp.name) / "outside" / ".swarmnotes"
+        os.environ["SWARMNOTES_DIR"] = str(store)
+        result = examen_mcp.examen_init(str(store.parent))
+        self.assertEqual(Path(result["root"]), store.resolve())
+        self.assertFalse((store / ".swarmnotes").exists())
+
+    def test_init_accepts_a_store_whose_name_is_not_dot_swarmnotes(self):
+        store = Path(self.tmp.name) / "custom-store"
+        os.environ["SWARMNOTES_DIR"] = str(store)
+        result = examen_mcp.examen_init(str(store))
+        self.assertEqual(Path(result["root"]), store.resolve())
+        self.assertTrue((store / "_shared" / "report-format.md").is_file())
+        self.assertFalse((store / ".swarmnotes").exists())
+        with self.assertRaises(examen.NoteError):
+            examen_mcp.examen_init(str(store.parent))
+
+    def test_swarmnotes_dir_does_not_allow_a_third_path(self):
+        store = Path(self.tmp.name) / "outside" / ".swarmnotes"
+        os.environ["SWARMNOTES_DIR"] = str(store)
+        third = Path(self.tmp.name) / "third"
+        third.mkdir()
+        with self.assertRaises(examen.NoteError) as raised:
+            examen_mcp.examen_init(str(third))
+        message = str(raised.exception)
+        self.assertIn("SWARMNOTES_DIR", message)
+        self.assertIn(str(store), message)
+        self.assertFalse((third / ".swarmnotes").exists())
+        self.assertFalse(store.exists())
+
+    def test_relative_swarmnotes_dir(self):
+        os.environ["SWARMNOTES_DIR"] = "kept-notes"
+        result = examen_mcp.examen_init("kept-notes")
+        root = Path(result["root"])
+        self.assertEqual(root, (self.project / "kept-notes").resolve())
+        self.assertTrue((root / "_shared" / "report-format.md").is_file())
+
+    def test_working_directory_stays_allowed_when_swarmnotes_dir_is_set(self):
+        store = Path(self.tmp.name) / "outside-store"
+        os.environ["SWARMNOTES_DIR"] = str(store)
+        result = examen_mcp.examen_init(".")
+        self.assertEqual(Path(result["root"]), (self.project / ".swarmnotes").resolve())
+        self.assertTrue((self.project / ".swarmnotes" / "_shared" / "report-format.md").is_file())
+        self.assertFalse(store.exists())
+
+    def test_swarmnotes_dir_that_is_the_working_directory_is_not_nested(self):
+        os.environ["SWARMNOTES_DIR"] = str(self.project)
+        result = examen_mcp.examen_init(".")
+        root = Path(result["root"])
+        self.assertEqual(root, self.project.resolve())
+        self.assertTrue((root / "_shared" / "report-format.md").is_file())
+        self.assertFalse((root / ".swarmnotes").exists())
 
 
 def _cli(*argv):
