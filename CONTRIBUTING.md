@@ -12,7 +12,8 @@ server are thin conveniences over the same `.swarmnotes/` files.
 - Do not rename `.swarmnotes/`. `SWARMNOTES_DIR` stays the environment
   variable. Stores written by Examen 0.3.0 must keep loading.
 - No hosted service, account, or second store.
-- Do not publish to crates.io, PyPI, or npm. `publish` stays false.
+- Do not publish to crates.io or PyPI. `publish` stays false in Cargo.toml.
+  npm packages under `npm/` are published by the release workflow.
 - Docs use Australian spelling and plain ASCII.
 
 ## Tests

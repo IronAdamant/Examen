@@ -168,6 +168,9 @@ def norm_mcp(text: str) -> str:
     text = text.replace("relatum_", "examen_")
     text = text.replace("Relatum", "Examen")
     text = text.replace("relatum", "examen")
+    # serverInfo.version is the Cargo package version. Examen 0.3.0 reported
+    # 0.3.0. Rewrite the Relatum versions this tree has shipped.
+    text = text.replace("1.0.1", "0.3.0")
     text = text.replace("1.0.0", "0.3.0")
     return text
 

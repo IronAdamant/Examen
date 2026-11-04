@@ -272,7 +272,7 @@ def main():
     rows.append(("memory check big (RSS)", float(median(py_rss)), float(median(rs_rss)), "KB"))
     print(f"memory: python {rows[-1][1]:.0f} rust {rows[-1][2]:.0f} KB", flush=True)
 
-    print("\n| Row | Python 0.3.0 | Relatum 1.0.0 |")
+    print("\n| Row | Python 0.3.0 | Relatum 1.0.1 |")
     print("|---|---:|---:|")
     slower = []
     for name, py_v, rs_v, unit in rows:

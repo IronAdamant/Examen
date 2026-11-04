@@ -131,6 +131,7 @@ fn dispatch(
             }
             Ok(if errors.is_empty() { 0 } else { 1 })
         }
+        Command::Mcp => Ok(crate::mcp::serve()),
     }
 }
 

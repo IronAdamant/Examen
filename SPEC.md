@@ -194,8 +194,9 @@ followed.
 ## 8. Versioning
 
 Relatum 1.0.0 keeps the v0.2 note format. The CLI and the MCP server are a
-Rust program with no Cargo dependencies. It is not published to crates.io,
-PyPI, or npm. The names `examen` on those indexes belong to unrelated projects.
+Rust program with no Cargo dependencies. It is not published to crates.io
+or PyPI. The names `examen` on those indexes belong to unrelated projects.
+npm packages are `@iron_adamant/relatum` and `@iron_adamant/relatum-<os>-<arch>`.
 
 Tools: `relatum_init`, `relatum_ls`, `relatum_get`, `relatum_new`,
 `relatum_supersede`, `relatum_check`. `relatum_init` only creates a store in

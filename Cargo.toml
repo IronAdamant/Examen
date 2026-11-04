@@ -1,10 +1,10 @@
 # Project name. This is the rename point for the crate, the `relatum` CLI,
 # the `{name}-mcp` server binary, and the `{name}_*` MCP tools.
-# `swarmnotes` stays as the legacy CLI alias. `publish` stays false:
-# the names examen (and possibly relatum) belong to other registries.
+# `swarmnotes` stays as the legacy CLI alias. `publish` stays false so this
+# crate is not sent to crates.io. npm packages live under npm/.
 [package]
 name = "relatum"
-version = "1.0.0"
+version = "1.0.1"
 edition = "2021"
 rust-version = "1.83"
 license = "MIT"
