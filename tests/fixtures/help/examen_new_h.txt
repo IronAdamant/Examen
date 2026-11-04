@@ -1,0 +1,15 @@
+usage: examen new [-h] --kind KIND --summary SUMMARY [--author AUTHOR]
+                  [--tags TAGS] [--body BODY]
+                  id
+
+positional arguments:
+  id
+
+options:
+  -h, --help         show this help message and exit
+  --kind KIND        decision|constraint|convention|context|format|finding|att
+                     empt
+  --summary SUMMARY
+  --author AUTHOR
+  --tags TAGS        comma-separated
+  --body BODY

@@ -1,0 +1,8 @@
+usage: examen supersede [-h] old new
+
+positional arguments:
+  old
+  new
+
+options:
+  -h, --help  show this help message and exit

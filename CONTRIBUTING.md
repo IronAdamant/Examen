@@ -4,24 +4,26 @@ The note format in [SPEC.md](SPEC.md) is the product. Briefs stay
 `Task` / `Read first` / `Your scope` / `Done when`. The CLI and the MCP
 server are thin conveniences over the same `.swarmnotes/` files.
 
-- Keep the core CLI (`examen.py`) on the Python standard library.
-  `dependencies` in `pyproject.toml` stays empty.
-- The MCP SDK belongs only in the optional extra `examen[mcp]`. Do not import
-  it from `examen.py`.
-- Do not rename `.swarmnotes/`.
+- Rust standard library only. `Cargo.toml` has no dependencies and no
+  dev-dependencies. Do not add a crate.
+- The package `name` in `Cargo.toml` is the rename point for the CLI, the
+  `{name}-mcp` binary, and the `{name}_*` tools. `swarmnotes` stays as the
+  legacy alias.
+- Do not rename `.swarmnotes/`. `SWARMNOTES_DIR` stays the environment
+  variable. Stores written by Examen 0.3.0 must keep loading.
 - No hosted service, account, or second store.
+- Do not publish to crates.io, PyPI, or npm. `publish` stays false.
+- Docs use Australian spelling and plain ASCII.
 
 ## Tests
 
 ```sh
-python3 -m unittest discover -s tests
-cd examples/retry-swarm && python3 ../../examen.py check
+cargo test --locked
+cargo build --release --locked
+python3 parity/harness.py target/release/relatum target/release/relatum-mcp
 ```
 
-Core tests are unittest and do not need the `mcp` package. Handler tests in
-`tests/test_examen_mcp.py` call the tool functions directly. The in-memory and
-stdio checks in that file run when `examen[mcp]` is installed; they do not
-use the network.
-
-GitHub Actions runs this suite on Ubuntu, macOS, and Windows. Python 3.9
-runs without the MCP extra. Python 3.10 and 3.13 install `mcp>=2.0,<3`.
+The harness needs the `python-legacy` branch
+(`git fetch origin python-legacy`) and, for the MCP half,
+`pip install "mcp==2.3.0"`. It does not use the network after that.
+GitHub Actions runs `cargo test` and the harness on Linux, macOS, and Windows.

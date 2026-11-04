@@ -1,14 +1,15 @@
-# Examen format — v0.2
+# Relatum format - v0.2 notes
 
-Examen is pass-by-reference for agent context. A parent agent writes a fact
+Relatum is pass-by-reference for agent context. A parent agent writes a fact
 once as a **note**, then hands spawned agents a short **brief** that names note
 IDs instead of pasting their text. Children fetch only the notes they are told
 to (or that they find relevant in their own scope), and write their findings
 back as notes so siblings and the parent can reference them too.
 
 The format is plain markdown files. Any agent that can read and write files can
-participate; the `examen` CLI and the optional MCP server are conveniences over
-the same files. `swarmnotes` is an alias of the same CLI.
+participate; the `relatum` CLI and the MCP server are conveniences over
+the same files. `swarmnotes` is an alias of the same CLI. The store directory
+is still `.swarmnotes/`.
 
 ## 1. Layout
 
@@ -70,7 +71,7 @@ inline as `[a, b]`. A `#` comment line is allowed. Fields:
 | field           | required | meaning                                                         |
 |-----------------|----------|-----------------------------------------------------------------|
 | `kind`          | yes      | one of the kinds below                                          |
-| `summary`       | yes      | one line, ≤ 100 chars; shown in listings                        |
+| `summary`       | yes      | one line, <= 100 chars; shown in listings                        |
 | `author`        | no       | who wrote it (`parent`, or the agent's name)                    |
 | `updated`       | no       | ISO date (`YYYY-MM-DD`) of last edit                            |
 | `tags`          | no       | inline list of slugs, for filtering                             |
@@ -84,7 +85,7 @@ Unknown keys, duplicate keys, and a `superseded_by` on a note that is not
 
 | kind         | written by | holds                                                       |
 |--------------|------------|-------------------------------------------------------------|
-| `decision`   | parent     | a choice already made, and why — so children don't relitigate it |
+| `decision`   | parent     | a choice already made, and why - so children don't relitigate it |
 | `constraint` | parent     | something that must / must not be done                      |
 | `convention` | parent     | how things are done here (style, layout, commands)          |
 | `context`    | parent     | background a child needs but can't cheaply rediscover       |
@@ -96,7 +97,7 @@ Unknown keys, duplicate keys, and a `superseded_by` on a note that is not
 
 A note is a fact, not a document. Keep the body under ~300 words. If it grows
 past that, split it into several notes. A note that's too big just moves the
-token waste from the brief into the fetch. `examen check` warns past 300 words
+token waste from the brief into the fetch. `relatum check` warns past 300 words
 and does not fail the command for length alone.
 
 ## 4. Briefs
@@ -113,13 +114,13 @@ Done when: tests/net/ passes and retries are covered by a new test.
 
 Rules for a brief:
 
-1. **Task** — what to do, in a sentence or two. This is the only part that's
+1. **Task** - what to do, in a sentence or two. This is the only part that's
    unique to the child.
-2. **Read first** — the exact note IDs the child must read. The parent decides
+2. **Read first** - the exact note IDs the child must read. The parent decides
    relevance; children don't have to guess.
-3. **Your scope** — where the child writes notes, and the subtree it may
+3. **Your scope** - where the child writes notes, and the subtree it may
    browse for sibling findings.
-4. **Done when** — a checkable end condition.
+4. **Done when** - a checkable end condition.
 
 Never paste a note's body into a brief. If the text is worth sending to more
 than one child, it's worth making it a note.
@@ -134,7 +135,7 @@ than one child, it's worth making it a note.
 - Give each child (or group of children) a scope.
 - Changed your mind? Make a small correction by editing the note in place and
   bumping `updated`. If the note is being replaced, write a new note and mark
-  the old one `status: superseded` with `superseded_by` (`examen supersede OLD NEW`).
+  the old one `status: superseded` with `superseded_by` (`relatum supersede OLD NEW`).
 - Read children's reports. Fetch the note IDs they cite only when you need the
   details.
 
@@ -147,7 +148,7 @@ than one child, it's worth making it a note.
   in your scope. Your final report cites their IDs instead of restating them.
 - Only edit notes you authored. If you disagree with a parent note, write a
   `finding` and say so in your report.
-- If a note you were given is superseded, follow `superseded_by`. `examen get`
+- If a note you were given is superseded, follow `superseded_by`. `relatum get`
   follows the chain, including multiple hops, and stops on a note that is not
   superseded.
 
@@ -159,7 +160,7 @@ swarm state), and delete a scope when its work is merged.
 
 ## 7. Lint
 
-`examen check` reads every `*.md` note under the root.
+`relatum check` reads every `*.md` note under the root.
 
 Errors (exit 1). `ls` still hides superseded notes unless `--all`, and this
 list is what v0.2 treats as a hard failure:
@@ -185,23 +186,23 @@ Warnings (printed, exit 0 when there are no errors):
 - missing `author`
 - missing `updated`
 
-`examen ls` hides `superseded` notes unless `--all`. With `--all`, a
+`relatum ls` hides `superseded` notes unless `--all`. With `--all`, a
 superseded row is marked `[-> <id>]`. Drafts are marked `[draft]`.
-`examen get` prints the live note at the end of the chain and the path it
+`relatum get` prints the live note at the end of the chain and the path it
 followed.
 
 ## 8. Versioning
 
-This is v0.3. The note format is the same as v0.2. v0.3 adds an optional MCP
-server over these files (`examen_init`, `examen_ls`, `examen_get`,
-`examen_new`, `examen_supersede`, `examen_check`), installed with
-`pip install "examen[mcp] @ git+https://github.com/IronAdamant/Examen"`.
-`examen_init` only creates a store in the current working directory or at
-`SWARMNOTES_DIR`. The core CLI stays on the standard library. This project
-is not published on PyPI.
+Relatum 1.0.0 keeps the v0.2 note format. The CLI and the MCP server are a
+Rust program with no Cargo dependencies. It is not published to crates.io,
+PyPI, or npm. The names `examen` on those indexes belong to unrelated projects.
 
-The format will change based on real use; breaking changes bump the minor
-version until 1.0. `.swarmnotes/` and `$SWARMNOTES_DIR` stay. v0.2 made
+Tools: `relatum_init`, `relatum_ls`, `relatum_get`, `relatum_new`,
+`relatum_supersede`, `relatum_check`. `relatum_init` only creates a store in
+the current working directory or at `SWARMNOTES_DIR`.
+
+`.swarmnotes/` and `$SWARMNOTES_DIR` stay, so a store written by Examen 0.3.0
+or by the earlier SwarmNotes files loads with no migration. v0.2 made
 structural frontmatter, tags, dates, empty bodies, and supersede chains into
 lint errors, and `get` / `supersede` refuse a chain that does not end on a
-live note.
+live note. 1.0.0 treats that format as stable.

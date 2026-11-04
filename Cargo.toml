@@ -1,0 +1,30 @@
+# Project name. This is the rename point for the crate, the `relatum` CLI,
+# the `{name}-mcp` server binary, and the `{name}_*` MCP tools.
+# `swarmnotes` stays as the legacy CLI alias. `publish` stays false:
+# the names examen (and possibly relatum) belong to other registries.
+[package]
+name = "relatum"
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.83"
+license = "MIT"
+publish = false
+description = "Pass-by-reference notes for agent swarms. std only."
+readme = "README.md"
+autobins = false
+
+[dependencies]
+
+[dev-dependencies]
+
+[[bin]]
+name = "relatum"
+path = "src/main.rs"
+
+[[bin]]
+name = "relatum-mcp"
+path = "src/main.rs"
+
+[[bin]]
+name = "swarmnotes"
+path = "src/main.rs"

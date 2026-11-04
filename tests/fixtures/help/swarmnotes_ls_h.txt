@@ -1,0 +1,10 @@
+usage: swarmnotes ls [-h] [--kind KIND] [--tag TAG] [--all] [scope]
+
+positional arguments:
+  scope
+
+options:
+  -h, --help   show this help message and exit
+  --kind KIND
+  --tag TAG
+  --all        include superseded notes
