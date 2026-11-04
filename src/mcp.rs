@@ -366,16 +366,26 @@ fn rpc_error(id: &Value, code: i64, message: &str, data: Option<Value>) -> Strin
     ]))
 }
 
+fn eprint_line(text: &str) {
+    // Python's logging StreamHandler writes through a text-mode stderr, which
+    // uses CRLF on Windows. Match that so the log bytes are the same.
+    let nl = if cfg!(windows) { "\r\n" } else { "\n" };
+    let _ = std::io::stderr().write_all(format!("{text}{nl}").as_bytes());
+}
+
 fn log_fail(name: &str, text: &str) {
-    let _ = writeln!(std::io::stderr(), "Tool {} failed: {}", py_repr(name), py_repr(text));
+    eprint_line(&format!(
+        "Tool {} failed: {}",
+        py_repr(name),
+        py_repr(text)
+    ));
 }
 
 fn log_rejected(name: &str, fields: &[String]) {
-    let _ = writeln!(
-        std::io::stderr(),
+    eprint_line(&format!(
         "Tool {} rejected arguments: {}",
         py_repr(name),
         py_list(fields)
-    );
+    ));
 }
 

@@ -58,18 +58,18 @@ def py_call(mod, args, cwd: Path, env: dict, stdin: str):
 
     old_cwd = os.getcwd()
     old_env = {key: os.environ.get(key) for key in ("SWARMNOTES_DIR", "TZ")}
-    os.chdir(cwd)
-    os.environ["TZ"] = "UTC"
-    if hasattr(os, "tzset"):
-        os.tzset()
-    if "SWARMNOTES_DIR" in env:
-        os.environ["SWARMNOTES_DIR"] = env["SWARMNOTES_DIR"]
-    else:
-        os.environ.pop("SWARMNOTES_DIR", None)
     out, err = io.StringIO(), io.StringIO()
     old_in = sys.stdin
-    sys.stdin = io.StringIO(stdin)
     try:
+        os.chdir(cwd)
+        os.environ["TZ"] = "UTC"
+        if hasattr(os, "tzset"):
+            os.tzset()
+        if "SWARMNOTES_DIR" in env:
+            os.environ["SWARMNOTES_DIR"] = env["SWARMNOTES_DIR"]
+        else:
+            os.environ.pop("SWARMNOTES_DIR", None)
+        sys.stdin = io.StringIO(stdin)
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             try:
                 code = mod.main(list(args))
@@ -83,7 +83,7 @@ def py_call(mod, args, cwd: Path, env: dict, stdin: str):
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
-    return code or 0, out.getvalue().replace("\r\n", "\n").replace("\r", "\n"), err.getvalue().replace("\r\n", "\n").replace("\r", "\n")
+    return code or 0, logical_newlines(out.getvalue()), logical_newlines(err.getvalue())
 
 
 def rust_call(binary: Path, args, cwd: Path, env: dict, stdin: str):
@@ -99,10 +99,7 @@ def rust_call(binary: Path, args, cwd: Path, env: dict, stdin: str):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    def nl(text: str) -> str:
-        return text.replace("\r\n", "\n").replace("\r", "\n")
-
-    return proc.returncode, nl(proc.stdout.decode()), nl(proc.stderr.decode())
+    return proc.returncode, logical_newlines(proc.stdout.decode()), logical_newlines(proc.stderr.decode())
 
 
 def snapshot(root: Path) -> dict[str, bytes]:
@@ -116,6 +113,54 @@ def snapshot(root: Path) -> dict[str, bytes]:
             rel = path.relative_to(root).as_posix()
             found[rel] = path.read_bytes()
     return found
+
+
+def absolute_tool(arg: str) -> Path:
+    """Program path for subprocess.
+
+    On POSIX, subprocess chdirs to the child's cwd before execve. A relative
+    program path is therefore looked up inside the temp directory and the
+    exec fails with ENOENT. Windows CreateProcess resolves the program
+    against the parent's directory, which is why only Linux and macOS died
+    on the first CLI call. The path is made absolute from this file's
+    repository root before any chdir.
+    """
+    path = Path(arg)
+    if not path.is_absolute():
+        path = ROOT / path
+    path = path.resolve()
+    if not path.is_file():
+        parent = path.parent
+        entries = sorted(item.name for item in parent.iterdir()) if parent.is_dir() else []
+        raise SystemExit(f"missing tool binary {path}; cwd={os.getcwd()}; entries={entries}")
+    return path
+
+
+def logical_newlines(text: str) -> str:
+    """Fold Windows text-mode newlines.
+
+    CPython opens stderr as text. On Windows that writes os.linesep, so each
+    MCP log record is CRLF. The harness reads the pipe as bytes. A carriage
+    return is not a different log line. Folding to \\n compares the line
+    text; a missing or extra line still fails.
+    """
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def scrub_temp_names(text: str, folders: list[Path]) -> str:
+    """Replace only the unique final component of each side's temp directory.
+
+    The two processes get different directories (py-* and rs-*). That name
+    shows up in absolute paths, in JSON (where backslashes are escaped), and
+    in Python repr. The final component is not escaped, so one replacement
+    covers every spelling. The rest of the path is left in place: a different
+    drive, slash, prefix, or a missing .swarmnotes segment still fails.
+    """
+    for folder in folders:
+        name = folder.name
+        if name:
+            text = text.replace(name, "$DIR")
+    return text
 
 
 def norm_mcp(text: str) -> str:
@@ -295,12 +340,13 @@ def mcp_suite(legacy: Path, binary_mcp: Path, diffs: Diffs):
         calls_rs = [(name.replace("examen_", "relatum_"), args) for name, args in calls_py]
         py_resp, py_err = mcp_round([sys.executable, "-m", "examen_mcp"], py_dir, env_py, calls_py)
         rs_resp, rs_err = mcp_round([str(binary_mcp)], rs_dir, env_rs, calls_rs)
-        py_norm = norm_mcp(json.dumps(py_resp, sort_keys=True)).replace(str(py_dir), "$DIR")
-        rs_norm = norm_mcp(json.dumps(rs_resp, sort_keys=True)).replace(str(rs_dir), "$DIR")
+        folders = [py_dir, rs_dir]
+        py_norm = scrub_temp_names(norm_mcp(json.dumps(py_resp, sort_keys=True)), folders)
+        rs_norm = scrub_temp_names(norm_mcp(json.dumps(rs_resp, sort_keys=True)), folders)
         if py_norm != rs_norm:
             diffs.add("mcp responses", py_norm, rs_norm)
-        py_err_n = norm_mcp(py_err).replace(str(py_dir), "$DIR")
-        rs_err_n = norm_mcp(rs_err).replace(str(rs_dir), "$DIR")
+        py_err_n = scrub_temp_names(logical_newlines(norm_mcp(py_err)), folders)
+        rs_err_n = scrub_temp_names(logical_newlines(norm_mcp(rs_err)), folders)
         if py_err_n != rs_err_n:
             diffs.add("mcp stderr", py_err_n, rs_err_n)
         if snapshot(py_dir / ".swarmnotes") != snapshot(rs_dir / ".swarmnotes"):
@@ -438,30 +484,20 @@ def mcp_init_matrix(binary_mcp: Path, diffs: Diffs):
                 store = rs_dir.parent / f"{name}-store" / ".swarmnotes"
                 env["SWARMNOTES_DIR"] = str(store)
                 rs_path = str(store.parent)
-            rs_result, rs_err = mcp_one(binary_mcp, rs_dir, env, "relatum_init", {"path": rs_path})
-            py_text = norm_mcp(str(py_result)).replace(str(py_dir), "$DIR")
-            if mode:
-                py_text = py_text.replace(str(py_dir.parent / f"{name}-store"), "$STORE")
-            rs_text = norm_mcp(json.dumps(rs_result)).replace(str(rs_dir), "$DIR")
-            if mode:
-                rs_text = rs_text.replace(str(rs_dir.parent / f"{name}-store"), "$STORE")
-            # Python returns a dict; Rust returns the tool envelope. Compare the inner result.
-            py_text = norm_mcp(py_text).replace(str(py_dir), "$DIR")
-            if mode:
-                py_text = py_text.replace(str(py_dir.parent / f"{name}-store"), "$STORE")
+            rs_result, _rs_err = mcp_one(binary_mcp, rs_dir, env, "relatum_init", {"path": rs_path})
+            folders = [py_dir, rs_dir]
             if isinstance(py_result, dict):
-                py_text = norm_mcp(json.dumps(py_result, sort_keys=True)).replace(str(py_dir), "$DIR")
-                if mode:
-                    py_text = py_text.replace(str(py_dir.parent / f"{name}-store"), "$STORE")
+                py_text = norm_mcp(json.dumps(py_result, sort_keys=True))
                 inner = rs_result.get("result", {}).get("structuredContent", {}).get("result")
-                rs_text = json.dumps(inner, sort_keys=True)
+                rs_text = norm_mcp(json.dumps(inner, sort_keys=True))
             else:
-                py_text = py_text.removeprefix("ERR ")
+                py_text = norm_mcp(str(py_result)).removeprefix("ERR ")
                 rs_text = rs_result.get("result", {}).get("content", [{}])[0].get("text", "")
-                rs_text = rs_text.split(": ", 1)[-1] if rs_text.startswith("Error executing tool ") else rs_text
-            rs_text = norm_mcp(rs_text).replace(str(rs_dir), "$DIR")
-            if mode:
-                rs_text = rs_text.replace(str(rs_dir.parent / f"{name}-store"), "$STORE")
+                if rs_text.startswith("Error executing tool "):
+                    rs_text = rs_text.split(": ", 1)[-1]
+                rs_text = norm_mcp(rs_text)
+            py_text = scrub_temp_names(py_text, folders)
+            rs_text = scrub_temp_names(rs_text, folders)
             if py_text != rs_text:
                 diffs.add(f"init {name}", py_text, rs_text)
         finally:
@@ -489,8 +525,8 @@ def mcp_one(binary, cwd, env, name, arguments):
 
 
 def main():
-    binary = Path(sys.argv[1] if len(sys.argv) > 1 else ROOT / "target" / "debug" / "relatum")
-    binary_mcp = Path(sys.argv[2] if len(sys.argv) > 2 else ROOT / "target" / "debug" / "relatum-mcp")
+    binary = absolute_tool(sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "target" / "debug" / "relatum"))
+    binary_mcp = absolute_tool(sys.argv[2] if len(sys.argv) > 2 else str(ROOT / "target" / "debug" / "relatum-mcp"))
     os.environ["TZ"] = "UTC"
     if hasattr(os, "tzset"):
         os.tzset()
