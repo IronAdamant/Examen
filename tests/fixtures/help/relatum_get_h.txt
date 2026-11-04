@@ -1,0 +1,7 @@
+usage: relatum get [-h] ids [ids ...]
+
+positional arguments:
+  ids
+
+options:
+  -h, --help  show this help message and exit

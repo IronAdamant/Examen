@@ -1,0 +1,13 @@
+Pass-by-reference notes for agent swarms.
+
+positional arguments:
+  {init,new,ls,get,supersede,check}
+    init                create .swarmnotes/ with a default report format
+    new                 create a note (body from --body or stdin)
+    ls                  list notes: id, kind, summary
+    get                 print note bodies, following superseded_by
+    supersede           mark OLD as replaced by NEW
+    check               lint every note
+
+options:
+  -h, --help            show this help message and exit

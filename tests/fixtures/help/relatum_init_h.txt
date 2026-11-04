@@ -1,0 +1,7 @@
+usage: relatum init [-h] [path]
+
+positional arguments:
+  path
+
+options:
+  -h, --help  show this help message and exit

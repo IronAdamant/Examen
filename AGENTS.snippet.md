@@ -1,6 +1,6 @@
-## Examen: shared notes for spawned agents
+## Relatum: shared notes for spawned agents
 
-This project uses Examen (`.swarmnotes/`) to share context between agents
+This project uses Relatum (`.swarmnotes/`) to share context between agents
 by reference. A note is a short markdown file; its ID is its path under
 `.swarmnotes/` without `.md` (e.g. `net/retry-decision`).
 The storage directory stays `.swarmnotes/`.
@@ -10,7 +10,7 @@ The storage directory stays `.swarmnotes/`.
   context, report format) goes in a note *once*. Don't paste it into briefs.
 - Write each brief as:
   ```
-  Task: <what to do, 1–2 sentences>
+  Task: <what to do, 1-2 sentences>
   Read first: <note IDs the child must read>
   Your scope: <directory under .swarmnotes/ the child writes to>
   Done when: <checkable end condition>
@@ -32,27 +32,27 @@ The storage directory stays `.swarmnotes/`.
 `.swarmnotes/` files as the CLI:
 
 ```
-examen_ls        scope, kind, include_superseded
-examen_get       one or more IDs; follows superseded notes
-examen_new       id, kind, summary, body, author, tags
-examen_supersede old, new
-examen_check
-examen_init      create .swarmnotes/ if it is missing (cwd or SWARMNOTES_DIR only)
+relatum_ls        scope, kind, include_superseded
+relatum_get       one or more IDs; follows superseded notes
+relatum_new       id, kind, summary, body, author, tags
+relatum_supersede old, new
+relatum_check
+relatum_init      create .swarmnotes/ if it is missing (cwd or SWARMNOTES_DIR only)
 ```
 
-Otherwise use the CLI (`examen`; `swarmnotes` is the same command):
+Otherwise use the CLI (`relatum`; `swarmnotes` is the same command):
 
 ```
-examen ls [scope] [--kind K] [--tag T] [--all]
-examen get ID [ID...]
-examen new ID --kind K --summary "…" --author NAME --body "…"
-examen supersede OLD NEW
-examen check
+relatum ls [scope] [--kind K] [--tag T] [--all]
+relatum get ID [ID...]
+relatum new ID --kind K --summary "..." --author NAME --body "..."
+relatum supersede OLD NEW
+relatum check
 ```
 
 Kinds: decision, constraint, convention, context, format (parent);
-finding, attempt (child). Keep a summary to one line (≤ 100 chars) and a body
-under ~300 words. If it's longer, split it.
+finding, attempt (child). Keep a summary to one line (<= 100 chars) and a body
+under about 300 words. If it is longer, split it.
 
 Without MCP or the CLI: `ls -R .swarmnotes/` is the catalog and
 `cat .swarmnotes/<id>.md` is get. To create a note, write a new file with

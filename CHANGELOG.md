@@ -1,6 +1,21 @@
 # Changelog
 
-## 0.3.0 — 2026-10-02
+## 1.0.0 - 2026-11-04
+
+- Rust port of the Examen 0.3.0 CLI and stdio MCP server. No Cargo crates.
+  The note format is unchanged from v0.2 and is treated as stable.
+- The crate, the CLI, and the MCP server are named `relatum`. Tools are
+  `relatum_init`, `relatum_ls`, `relatum_get`, `relatum_new`,
+  `relatum_supersede`, and `relatum_check`. `swarmnotes` remains a CLI alias.
+- `.swarmnotes/` and `SWARMNOTES_DIR` are unchanged, so existing stores load
+  with no migration. `init` still seeds `author: examen` on
+  `_shared/report-format`.
+- The Python implementation is the `python-legacy` branch. This tree does
+  not publish to crates.io, PyPI, or npm.
+- Release workflow on `v*` tags builds linux x64, linux arm64, macOS x64,
+  macOS arm64, and Windows x64 binaries with `SHA256SUMS`.
+
+## 0.3.0 - 2026-10-02
 
 - Optional stdio MCP server over the same `.swarmnotes/` files as the CLI.
   Install from GitHub with
@@ -16,7 +31,7 @@
 - Agent skill and `AGENTS.snippet.md` prefer the MCP tools when a host
   exposes them.
 
-## 0.2.0 — 2026-10-02
+## 0.2.0 - 2026-10-02
 
 - Public CLI: `init`, `new`, `ls`, `get`, `supersede`, `check`.
 - `swarmnotes` is an alias of `examen`.
