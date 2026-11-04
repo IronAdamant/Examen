@@ -39,6 +39,15 @@ jobs:
       - name: Release build
         run: cargo build --release --locked
 
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: npm pack and launcher
+        shell: bash
+        run: bash npm/pack-check.sh
+
       - name: MCP SDK for the parity server
         run: python -m pip install "mcp==2.3.0"
 

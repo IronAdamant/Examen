@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.1 - 2026-11-04
+
+- npm packages `@iron_adamant/relatum` and five platform packages
+  (`linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `windows-x64`).
+  The launcher has no npm dependencies. `npx -y @iron_adamant/relatum mcp`
+  starts the stdio server.
+- `relatum mcp` starts the same stdio server as `relatum-mcp`.
+- `server.json` names the server `io.github.IronAdamant/relatum` for the MCP
+  Registry.
+- The `v*` release workflow still attaches the five archives and
+  `SHA256SUMS` to the GitHub Release, then publishes the npm packages. That
+  job requires the `NPM_TOKEN` repository secret and fails if it is missing.
+  `workflow_dispatch` can publish npm for an existing tag without rebuilding.
+- README section "Migrating from Examen (Python)".
+
 ## 1.0.0 - 2026-11-04
 
 - Rust port of the Examen 0.3.0 CLI and stdio MCP server. No Cargo crates.

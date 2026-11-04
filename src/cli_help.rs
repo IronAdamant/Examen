@@ -25,6 +25,7 @@ fn tail(cmd: Option<&str>) -> &'static str {
         Some("get") => include_str!("help/get.txt"),
         Some("supersede") => include_str!("help/supersede.txt"),
         Some("check") => include_str!("help/check.txt"),
+        Some("mcp") => include_str!("help/mcp.txt"),
         _ => "",
     }
 }
@@ -83,7 +84,7 @@ fn parts(cmd: Option<&str>) -> (&'static [&'static str], &'static [&'static str]
         ),
         Some("get") => (&["[-h]"], &["ids", "[ids ...]"]),
         Some("supersede") => (&["[-h]"], &["old", "new"]),
-        Some("check") => (&["[-h]"], &[]),
+        Some("check") | Some("mcp") => (&["[-h]"], &[]),
         _ => (&["[-h]"], &[]),
     }
 }

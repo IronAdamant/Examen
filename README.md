@@ -52,9 +52,43 @@ matches byte for byte.
 ## Install
 
 The program is Rust, standard library only. There are no Cargo crates.
-Build it from this Git repository. It is not published to crates.io. The
-name `examen` on PyPI and npm belongs to unrelated projects, and this
-repository does not publish there either.
+It is not published to crates.io or PyPI. The name `examen` on PyPI and on
+the unscoped npm package belongs to unrelated projects. Relatum's packages
+are scoped `@iron_adamant`.
+
+### npm
+
+```sh
+npx -y @iron_adamant/relatum --help
+npx -y @iron_adamant/relatum mcp
+```
+
+`npx` installs `@iron_adamant/relatum` and the optional platform package for
+this OS. The launcher is JavaScript with no npm dependencies. It runs
+`relatum`, `relatum-mcp`, or `swarmnotes` from that platform package.
+Platform packages:
+
+| Package | OS | Arch |
+|---|---|---|
+| `@iron_adamant/relatum-linux-x64` | Linux | x64 |
+| `@iron_adamant/relatum-linux-arm64` | Linux | arm64 |
+| `@iron_adamant/relatum-darwin-x64` | macOS | x64 |
+| `@iron_adamant/relatum-darwin-arm64` | macOS | arm64 |
+| `@iron_adamant/relatum-windows-x64` | Windows | x64 |
+
+### GitHub release binaries
+
+A `v*` tag builds linux x64, linux arm64, macOS x64, macOS arm64, and
+Windows x64 archives and attaches them to the GitHub Release with
+`SHA256SUMS`. Verify the checksums before installing. Each archive contains
+`relatum`, `relatum-mcp`, and the `swarmnotes` alias. macOS archives are
+named `relatum-macos-x64` and `relatum-macos-arm64`. The matching npm
+packages use `darwin` in the name, which is the id Node uses for macOS.
+This tree does not publish a tag by itself.
+
+<https://github.com/IronAdamant/Relatum/releases>
+
+### From source
 
 ```sh
 git clone https://github.com/IronAdamant/Relatum
@@ -66,9 +100,72 @@ The binaries are `target/release/relatum` and `target/release/relatum-mcp`.
 `target/release/swarmnotes` is the same CLI under the old alias. Copy them
 onto `PATH` if you want the short names. Rust 1.83 or newer is enough.
 
-A tag workflow builds linux x64, linux arm64, macOS x64, macOS arm64, and
-Windows x64 archives with `SHA256SUMS` when a `v*` tag is pushed. This tree
-does not publish a tag by itself.
+## Migrating from Examen (Python)
+
+Examen 0.3.0 is the `python-legacy` branch. Relatum 1.0.1 reads the same
+`.swarmnotes/` files. `parity/harness.py` runs both and rewrites the items
+below before it treats them as equal. Each item is an intentional change
+or is unchanged.
+
+- **Intentional change.** The CLI is `relatum`. The stdio server is
+  `relatum-mcp`, and `relatum mcp` starts that same server. Examen had no
+  `mcp` subcommand. It used `examen-mcp` or `python -m examen_mcp`.
+  `relatum --help` still lists the same six commands as Examen
+  (`init`, `new`, `ls`, `get`, `supersede`, `check`). `relatum mcp -h`
+  prints the server command's help.
+- **Intentional change.** MCP tools are `relatum_init`, `relatum_ls`,
+  `relatum_get`, `relatum_new`, `relatum_supersede`, and `relatum_check`.
+  Examen used `examen_*`. The server instructions say Relatum, and
+  `serverInfo.name` is `relatum`. The harness rewrites `relatum_` to
+  `examen_`, then `Relatum` to `Examen`, then `relatum` to `examen`, before
+  comparing MCP text. For the CLI comparison it also forces Examen's
+  program name to `relatum` or `swarmnotes`, so help and errors can be
+  compared after the rename.
+- **Unchanged.** `swarmnotes` is still an alias of the CLI. Help and errors
+  use that name when the binary is `swarmnotes`.
+- **Intentional change.** Install is no longer the Examen command
+  `pip install "examen[mcp] @ git+https://github.com/IronAdamant/Examen"`.
+  Relatum is this repository. Use npm, a GitHub Release archive, or
+  `cargo build --release --locked`. The MCP server is in the binary. There
+  is no Python extra to install, and the process does not exit asking for
+  one.
+- **Unchanged.** The store directory is `.swarmnotes/`. `SWARMNOTES_DIR`
+  still points at a store. Notes written by Examen 0.3.0 load with no
+  migration and no second copy.
+- **Unchanged.** `init` still writes `author: examen` on
+  `_shared/report-format`. The rest of that seeded note matches Examen
+  0.3.0, so a store created on the same local date matches byte for byte.
+  The harness compares those file bytes as-is and does not rewrite
+  `author`.
+- **Unchanged.** On Windows, Relatum writes CRLF for CLI stdout, CLI
+  stderr, and MCP stderr log lines. The MCP logger does that so the log
+  bytes match CPython's text-mode stderr. The harness folds CR and LF on
+  the captured CLI pipes and on MCP stderr, then compares the line text.
+  MCP JSON-RPC responses are written with LF. The harness parses those
+  responses as JSON and does not rewrite that stream.
+- **Intentional change.** MCP `serverInfo.version` is the Relatum package
+  version, 1.0.1. Examen reported 0.3.0. The harness rewrites `1.0.1` and
+  `1.0.0` to `0.3.0` before comparing.
+- **Intentional change.** Validation errors keep pydantic's wording. The
+  documentation URL is pinned to `https://errors.pydantic.dev/2.14/v/...`
+  in `src/mcp_support.rs`. Examen printed the version of whichever pydantic
+  was installed with the MCP extra. The harness rewrites
+  `https://errors.pydantic.dev/<version>/` to
+  `https://errors.pydantic.dev/VER/` on both sides, then compares the
+  validation text.
+- **Unchanged.** The harness replaces the final component of each temporary
+  directory with `$DIR`. The two processes get different directories. Both
+  programs print the real path they were given. A different drive, slash,
+  or a missing `.swarmnotes` segment still fails the comparison.
+- **Unchanged.** For the init path checks, the harness calls Examen's
+  `examen_init` function in-process and calls Relatum through the
+  `relatum_init` tool. It drops a leading `Error executing tool ...:` from
+  the tool text so that wrapper is not part of the comparison. The refusal
+  is the same rule: create a store only in the working directory or at
+  `SWARMNOTES_DIR`.
+
+After those rewrites, the harness compares CLI exit codes, stdout, stderr,
+and the note files. The note format is still the v0.2 format.
 
 ## CLI
 
@@ -90,9 +187,11 @@ arguments and prints that name in help and errors.
 ## MCP server
 
 `relatum-mcp` is a stdio MCP server over **the same files** as the CLI. There
-is no second store and no hosted service. Hosts that speak MCP (Claude Code,
-Claude Desktop, Cursor, Grok Build, and other MCP clients) launch this one
-command.
+is no second store and no hosted service. `relatum mcp` is the same process.
+`npx -y @iron_adamant/relatum mcp` is the same process from the npm package.
+Hosts that speak MCP (Claude Code, Claude Desktop, Cursor, Grok Build, and
+other MCP clients) launch one of those commands. The registry manifest is
+[`server.json`](server.json) (`io.github.IronAdamant/relatum`).
 
 Tools: `relatum_init`, `relatum_ls` (scope, kind, include_superseded, tag),
 `relatum_get` (one or more IDs; follows superseded notes), `relatum_new`,
@@ -188,7 +287,7 @@ the files. See [AGENTS.snippet.md](AGENTS.snippet.md).
 
 ## Status
 
-1.0.0. The note format is the v0.2 format, now treated as stable. The CLI
+1.0.1. The note format is the v0.2 format, now treated as stable. The CLI
 and MCP server are the Rust port of Examen 0.3.0. See
 [CHANGELOG.md](CHANGELOG.md). The previous Python tree is the `python-legacy`
 branch.

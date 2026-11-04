@@ -4,3 +4,9 @@ build/
 dist/
 .venv/
 /target/
+npm/*/relatum
+npm/*/relatum.exe
+npm/*/relatum-mcp
+npm/*/relatum-mcp.exe
+npm/*/swarmnotes
+npm/*/swarmnotes.exe

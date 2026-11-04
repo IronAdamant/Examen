@@ -1,16 +1,25 @@
-# Builds release binaries and attaches them to a GitHub Release.
-# Runs only on v* tags. Pull requests do not publish anything.
+# Builds the five release binaries, publishes a GitHub Release with checksums,
+# then publishes the npm packages. A tag push runs the whole workflow.
+# workflow_dispatch runs only the npm job against an existing release.
+# Nothing in this file runs on a pull request.
 name: Release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing GitHub Release tag to publish to npm, such as v1.0.1
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 jobs:
   build:
+    if: github.event_name == 'push'
     name: ${{ matrix.asset }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -64,6 +73,7 @@ jobs:
             dist/${{ matrix.asset }}.sha256
 
   github-release:
+    if: github.event_name == 'push'
     name: GitHub Release
     needs: build
     runs-on: ubuntu-latest
@@ -85,9 +95,118 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           repo="${GITHUB_REPOSITORY}"
-          notes="Relatum ${tag}. Verify SHA256SUMS before installing. Binaries: linux x64, linux arm64, macOS x64, macOS arm64, Windows x64. Each archive contains relatum, relatum-mcp, and the swarmnotes alias."
+          notes="Relatum ${tag}. Verify SHA256SUMS before installing. Binaries: linux x64, linux arm64, macOS x64, macOS arm64, Windows x64. Each archive contains relatum, relatum-mcp, and the swarmnotes alias. npm publish of @iron_adamant/relatum and the five @iron_adamant/relatum-<os>-<arch> packages follows this job and needs the NPM_TOKEN repository secret. Scoped packages are published with --access public."
           if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            echo "release ${tag} already exists"
             gh release upload "$tag" dist/*.tar.gz dist/SHA256SUMS --repo "$repo" --clobber
           else
             gh release create "$tag" dist/*.tar.gz dist/SHA256SUMS --repo "$repo" --title "$tag" --notes "$notes"
           fi
+
+  npm:
+    name: npm registry
+    needs: github-release
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.github-release.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require NPM_TOKEN
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "NPM_TOKEN is not set. Add it as a repository secret named NPM_TOKEN."
+            echo "Use an npm automation token that can publish @iron_adamant/relatum and the five platform packages."
+            echo "The value is not printed. This job does not skip when the secret is missing."
+            exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+          scope: "@iron_adamant"
+      - uses: actions/download-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Download the existing release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_TAG}"
+          case "$tag" in
+            v[A-Za-z0-9._+-]*)
+              case "$tag" in
+                *[!A-Za-z0-9._+-]*) echo "tag has unexpected characters"; exit 1 ;;
+              esac
+              ;;
+            *) echo "tag must look like v1.0.1"; exit 1 ;;
+          esac
+          mkdir -p dist
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir dist
+          (cd dist && sha256sum -c SHA256SUMS)
+          printf '%s\n' "$tag" > dist/release-tag.txt
+      - name: Publish platform packages, then the wrapper
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NODE_AUTH_TOKEN}" ]; then
+            echo "NPM_TOKEN is not set. Add it as a repository secret named NPM_TOKEN. The value is not printed."
+            exit 1
+          fi
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            tag="$(cat dist/release-tag.txt)"
+          else
+            tag="${REF_NAME}"
+          fi
+          version="${tag#v}"
+          publish() {
+            dir="$1"
+            case "$dir" in
+              ./npm/*) ;;
+              *) echo "refusing to publish a path npm would treat as a git repo: $dir"; exit 1 ;;
+            esac
+            name="$(npm pkg get name --prefix "$dir" | tr -d '"')"
+            if npm view "${name}@${version}" version >/dev/null 2>&1; then
+              echo "${name}@${version} is already published"
+              return 0
+            fi
+            # Scoped packages are restricted unless --access public is set.
+            # The ./ prefix keeps npm from reading npm/<pkg> as github.com/npm/<pkg>.
+            npm publish --access public "$dir"
+          }
+          # GitHub assets keep the macos names. npm packages use darwin, which is
+          # Node's platform id and the os field those packages declare.
+          publish_asset() {
+            asset="$1"
+            pkg="$2"
+            dir="./npm/${pkg}"
+            tar -xzf "dist/${asset}.tar.gz" -C "$dir" --strip-components=1
+            npm pkg set version="${version}" --prefix "$dir"
+            publish "$dir"
+          }
+          publish_asset relatum-linux-x64 relatum-linux-x64
+          publish_asset relatum-linux-arm64 relatum-linux-arm64
+          publish_asset relatum-macos-x64 relatum-darwin-x64
+          publish_asset relatum-macos-arm64 relatum-darwin-arm64
+          publish_asset relatum-windows-x64 relatum-windows-x64
+          node -e '
+            const fs = require("fs");
+            const path = "npm/relatum/package.json";
+            const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
+            const version = process.argv[1];
+            pkg.version = version;
+            for (const key of Object.keys(pkg.optionalDependencies || {})) {
+              pkg.optionalDependencies[key] = version;
+            }
+            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
+          ' "$version"
+          publish ./npm/relatum

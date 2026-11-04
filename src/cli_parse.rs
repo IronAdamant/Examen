@@ -31,6 +31,8 @@ pub enum Command {
         new: String,
     },
     Check,
+    /// Start the stdio MCP server. Same process as the `relatum-mcp` binary.
+    Mcp,
 }
 
 #[derive(Debug)]
@@ -83,7 +85,9 @@ pub fn parse(args: &[String]) -> Parsed {
             message: "the following arguments are required: cmd".to_string(),
         };
     };
-    if !COMMANDS.contains(&command.as_str()) {
+    // `mcp` is not in COMMANDS. Top-level help and the invalid-choice list stay
+    // the six Examen commands so `relatum --help` still matches that CLI.
+    if command != "mcp" && !COMMANDS.contains(&command.as_str()) {
         return Parsed::Fail {
             child: None,
             message: format!(
@@ -201,7 +205,7 @@ fn parse_child(cmd: &str, args: &[String]) -> Result<Command, ChildFail> {
                 missing.push("new".to_string());
             }
         }
-        "check" => {}
+        "check" | "mcp" => {}
         _ => {}
     }
     for flag in flags {
@@ -261,6 +265,7 @@ fn parse_child(cmd: &str, args: &[String]) -> Result<Command, ChildFail> {
             old: positionals.remove(0),
             new: positionals.remove(0),
         },
+        "mcp" => Command::Mcp,
         _ => Command::Check,
     })
 }

@@ -1,0 +1,4 @@
+start the stdio MCP server
+
+options:
+  -h, --help  show this help message and exit
