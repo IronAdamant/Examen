@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.3.0 - 2026-11-05
+
+- Agents choose tool groups per project: the first `agent-tools` block in
+  the project's AGENTS.md (where `.swarmnotes/` is, else the working
+  directory), lines `relatum: tools <list>` / `relatum: disable <list>`.
+  Env variables override it per key (`RELATUM_TOOLS` the tools line,
+  `RELATUM_DISABLE` the disable line).
+- Mistakes in the block never stop the server: the line is ignored and the
+  initialize instructions carry one warning line. Env mistakes still exit 2.
+- The server advertises `tools.listChanged`, stats AGENTS.md on every
+  request, and sends `notifications/tools/list_changed` before the response
+  when the exposed tools change, so a mid-session edit applies without a
+  restart.
+- When an env switch or an AGENTS.md line for relatum is present, the
+  initialize instructions end with one line naming the groups on and off
+  and how to change them. With neither, the output is byte-identical to
+  1.2.0 except `tools.listChanged`, now always `true`.
+- A block nested inside another fenced block (a documentation example) is
+  text, not config; the README, SPEC, snippet, and skill examples switch
+  nothing.
+- AGENTS.snippet.md and the skill gain "Choosing groups"; the README a short
+  section on the block.
+
 ## 1.2.0 - 2026-11-05
 
 - MCP tool groups, per the suite's convention: `core` (`relatum_ls`,
