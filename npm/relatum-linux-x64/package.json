@@ -1,6 +1,6 @@
 {
   "name": "@iron_adamant/relatum-linux-x64",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Platform binary for Relatum. Populated by the GitHub Release workflow; not published from a pull request.",
   "license": "MIT",
   "os": ["linux"],

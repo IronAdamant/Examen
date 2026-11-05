@@ -63,6 +63,30 @@ Kinds: decision, constraint, convention, context, format (parent);
 finding, attempt (child). Keep a summary to one line (<= 100 chars) and a body
 under about 300 words. If it is longer, split it.
 
+**Choosing groups (MCP).** Relatum's MCP tools come in groups. `core`
+(`relatum_ls`, `relatum_get`, `relatum_new`) is always on. Switch off what
+this project does not use, and the tool list (and its tokens) shrinks:
+
+| Group | Tools | Turn it off when |
+|---|---|---|
+| `revise` | `relatum_edit`, `relatum_supersede` | agents only add notes and never correct or replace them |
+| `lint` | `relatum_check` | nobody lints the store from a session (CI or a human does) |
+| `setup` | `relatum_init` | the store already exists |
+
+To do that, add a line to the `agent-tools` block in the project's
+AGENTS.md (create the block if there is none). The server rereads it on the
+next request, no restart:
+
+````markdown
+```agent-tools
+relatum: disable lint, setup
+```
+````
+
+`relatum: tools <groups>` lists only what you want instead. A mistake in the
+line is reported in the server instructions and the line is ignored.
+`RELATUM_TOOLS` / `RELATUM_DISABLE` in the server's env, if set, win.
+
 Without MCP or the CLI: `ls -R .swarmnotes/` is the catalog and
 `cat .swarmnotes/<id>.md` is get. To create a note, write a new file with
 frontmatter (`kind`, `summary`, `author`, `updated`), but never overwrite an
