@@ -2,7 +2,7 @@
 
 use crate::error::NoteError;
 use crate::json::{self, Value};
-use crate::mcp_groups::Surface;
+use crate::mcp_groups::{Groups, Surface};
 use crate::mcp_schema;
 use crate::mcp_support::{
     InvokeErr, bool_or, check_optional_str, optional_int, optional_string, optional_tags, path_is_null,
@@ -35,14 +35,16 @@ pub fn main_mcp(args: &[String]) -> i32 {
 
 pub fn serve() -> i32 {
     // A typo in RELATUM_TOOLS / RELATUM_DISABLE stops the server, so the host
-    // shows it as failed instead of serving a surprise surface.
-    let surface = match Surface::from_env() {
-        Ok(surface) => surface,
+    // shows it as failed instead of serving a surprise surface. Mistakes in
+    // the AGENTS.md block are warnings in the instructions instead.
+    let mut groups = match Groups::from_env() {
+        Ok(groups) => groups,
         Err(line) => {
             eprint_line(&line);
             return 2;
         }
     };
+    let mut initialized = false;
     let stdin = std::io::stdin();
     let mut reader = std::io::BufReader::new(stdin.lock());
     let mut line = String::new();
@@ -55,7 +57,15 @@ pub fn serve() -> i32 {
                 if trimmed.is_empty() {
                     continue;
                 }
-                if let Some(response) = handle_line(trimmed, &surface) {
+                // One stat per message: an agent may edit the AGENTS.md
+                // block mid-session. Tell the client before answering.
+                if groups.refresh() && initialized {
+                    let mut stdout = std::io::stdout();
+                    let _ = stdout.write_all(LIST_CHANGED.as_bytes());
+                    let _ = stdout.write_all(b"\n");
+                    let _ = stdout.flush();
+                }
+                if let Some(response) = handle_line(trimmed, &groups, &mut initialized) {
                     let mut stdout = std::io::stdout();
                     let _ = stdout.write_all(response.as_bytes());
                     let _ = stdout.write_all(b"\n");
@@ -67,7 +77,10 @@ pub fn serve() -> i32 {
     0
 }
 
-fn handle_line(line: &str, surface: &Surface) -> Option<String> {
+const LIST_CHANGED: &str = r#"{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}"#;
+
+fn handle_line(line: &str, groups: &Groups, initialized: &mut bool) -> Option<String> {
+    let surface = groups.surface();
     let value = match json::parse(line) {
         Ok(value) => value,
         Err(_) => {
@@ -87,7 +100,10 @@ fn handle_line(line: &str, surface: &Surface) -> Option<String> {
     };
     let params = value.get("params");
     let result = match method {
-        "initialize" => Ok(initialize(params, surface)),
+        "initialize" => {
+            *initialized = true;
+            Ok(initialize(params, groups))
+        }
         "ping" => Ok(json::obj(vec![])),
         "tools/list" => Ok(json::obj(vec![("tools", listed_tools(surface))])),
         "tools/call" => call_tool(params, surface),
@@ -118,12 +134,9 @@ fn listed_tools(surface: &Surface) -> Value {
     )
 }
 
-fn initialize(params: Option<&Value>, surface: &Surface) -> Value {
+fn initialize(params: Option<&Value>, groups: &Groups) -> Value {
     let mut instructions = mcp_schema::instructions();
-    if let Some(line) = surface.summary() {
-        instructions.push_str(&line);
-        instructions.push('\n');
-    }
+    instructions.push_str(&groups.instructions_tail());
     let version = params
         .and_then(|params| params.get("protocolVersion"))
         .and_then(Value::as_str)
@@ -145,7 +158,8 @@ fn initialize(params: Option<&Value>, surface: &Surface) -> Value {
                 ),
                 (
                     "tools",
-                    json::obj(vec![("listChanged", json::bool_val(false))]),
+                    // The AGENTS.md block can change the tool list mid-session.
+                    json::obj(vec![("listChanged", json::bool_val(true))]),
                 ),
             ]),
         ),

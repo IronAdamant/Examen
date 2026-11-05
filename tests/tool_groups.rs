@@ -16,8 +16,15 @@ struct Run {
 
 /// One server session with the given variables and extra request lines.
 fn serve(env: &[(&str, &str)], extra: &[String]) -> Run {
+    // A fresh directory each time, so no AGENTS.md or store is inherited.
+    let dir = std::env::temp_dir().join(format!(
+        "relatum-groups-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_relatum-mcp"));
-    cmd.current_dir(std::env::temp_dir())
+    cmd.current_dir(&dir)
         .env_remove("RELATUM_TOOLS")
         .env_remove("RELATUM_DISABLE")
         .env_remove("SWARMNOTES_DIR")
@@ -37,6 +44,7 @@ fn serve(env: &[(&str, &str)], extra: &[String]) -> Run {
         }
     }
     let out = child.wait_with_output().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
     Run {
         lines: BufReader::new(&out.stdout[..]).lines().map(Result::unwrap).collect(),
         stderr: String::from_utf8_lossy(&out.stderr).replace("\r\n", "\n"),
@@ -82,12 +90,22 @@ fn tools(list: &[&str]) -> Vec<String> {
 
 const ALL: [&str; 7] = ["init", "ls", "get", "new", "edit", "supersede", "check"];
 
+/// The groups line when every group is on (only shown once something is configured).
+const ALL_ON: &str = "Tool groups on: core, revise, lint, setup. Off: none. To change them, add a line such as \"relatum: disable lint\" to an agent-tools block in AGENTS.md";
+
 #[test]
-fn default_surface_is_byte_identical_to_1_1_0() {
+fn default_surface_is_1_1_0_except_list_changed() {
     let run = serve(&[], &[]);
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(list_result(&run), include_str!("fixtures/mcp/tools_list_1.1.0.json"));
     assert_eq!(instructions(&run), include_str!("fixtures/mcp/instructions_1.1.0.txt"));
+    // The only change to default initialize output: tools.listChanged is true.
+    let init = json::parse(&run.lines[0]).unwrap();
+    let capabilities = init.get("result").and_then(|r| r.get("capabilities")).unwrap();
+    assert_eq!(
+        json::write_compact(capabilities),
+        r#"{"prompts":{"listChanged":false},"resources":{"listChanged":false,"subscribe":false},"tools":{"listChanged":true}}"#
+    );
     // Empty values count as unset.
     let empty = serve(&[("RELATUM_TOOLS", ""), ("RELATUM_DISABLE", "  ")], &[]);
     assert_eq!(list_result(&empty), list_result(&run));
@@ -98,8 +116,8 @@ fn default_surface_is_byte_identical_to_1_1_0() {
     assert_eq!(
         instructions(&all),
         format!(
-            "{}Tool groups on: core, revise, lint, setup. Off: none. Set by RELATUM_TOOLS / RELATUM_DISABLE.\n",
-            instructions(&run)
+            "{}{ALL_ON}; RELATUM_TOOLS / RELATUM_DISABLE are set and take precedence.\n",
+            include_str!("fixtures/mcp/instructions_1.1.0.txt")
         )
     );
 }
@@ -126,7 +144,7 @@ fn tools_and_disable_filter_by_group_and_by_tool() {
     let summary = instructions(&serve(&[("RELATUM_TOOLS", "relatum_edit"), ("RELATUM_DISABLE", "lint")], &[]));
     assert!(
         summary.ends_with(
-            "Tool groups on: core, revise (only relatum_edit). Off: lint, setup. Set by RELATUM_TOOLS / RELATUM_DISABLE.\n"
+            "Tool groups on: core, revise (only relatum_edit). Off: lint, setup. To change them, add a line such as \"relatum: disable lint\" to an agent-tools block in AGENTS.md; RELATUM_TOOLS / RELATUM_DISABLE are set and take precedence.\n"
         ),
         "{summary}"
     );

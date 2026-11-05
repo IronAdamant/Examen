@@ -130,13 +130,41 @@ comma-separated, and may be groups or tool names):
 "env": { "RELATUM_DISABLE": "lint,setup" }
 ```
 
-With neither set, the server is exactly as before. A hidden tool is absent
+With neither set and no `agent-tools` lines for `relatum`, the server's
+output is as before, except that it advertises `tools.listChanged`. Once
+something is set, the initialize instructions end with one line naming the
+groups that are on and how to change them. A hidden tool is absent
 from `tools/list`, and calling it anyway returns one line saying which
 variable to change. An unknown name, or trying to disable `core`, stops
 the server at startup with exit code 2 and a one-line message, so the host
 shows it as failed. The `tools/list` response is 6194 bytes with every
 group on and 3179 bytes with `RELATUM_TOOLS=core`. The CLI ignores both
 variables.
+
+### Choosing groups
+
+Agents choose the groups per project in the project's `AGENTS.md`
+(the directory that holds `.swarmnotes/`, or the server's working
+directory). The server reads the first fenced block tagged `agent-tools`
+and only the lines for `relatum`:
+
+````markdown
+```agent-tools
+# one agent works here and the store exists
+relatum: disable lint, setup
+```
+````
+
+`relatum: tools <list>` is an allowlist; `relatum: disable <list>` hides
+groups or tools. Names are those of the env variables, separated by commas
+or spaces. Per key, `RELATUM_TOOLS` overrides the `tools` line and
+`RELATUM_DISABLE` overrides the `disable` line. A mistake in the file never
+stops the server: the line is ignored and a warning appears in the
+initialize instructions. The server stats AGENTS.md on every request; when
+the block changes the tool set, it sends `notifications/tools/list_changed`
+(it advertises `tools.listChanged`), so the client refetches the list
+mid-session. [AGENTS.snippet.md](AGENTS.snippet.md) has a short
+decision table for agents.
 
 ## Example
 

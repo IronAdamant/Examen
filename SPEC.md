@@ -236,7 +236,19 @@ allowlist) and `RELATUM_DISABLE` (applied after it) take comma-separated
 group or tool names; they hide tools from `tools/list` and make calls to
 them return one line naming the variable to change. An unknown name, or
 disabling `core`, stops the server with exit code 2. They do not affect the
-CLI or the files, and with neither set the server is unchanged.
+CLI or the files. An agent chooses groups per project in the project's
+AGENTS.md (the directory holding the store, else the working directory): the
+first fenced block tagged `agent-tools`, with lines `relatum: tools <list>`
+and `relatum: disable <list>` (commas or spaces, `#` comments; lines for
+other tools are ignored). Per key, `RELATUM_TOOLS` beats the `tools` line
+and `RELATUM_DISABLE` beats the `disable` line. A bad line is ignored and
+reported as a warning in the initialize instructions; it never stops the
+server. The server advertises `tools.listChanged`, stats AGENTS.md on every
+request, and sends `notifications/tools/list_changed` before its response
+when the exposed tools change. A block nested inside another fenced block
+is text (a documentation example), not config. With no switch and no
+lines for `relatum`, the output is unchanged except for `tools.listChanged`;
+otherwise the instructions end with one line naming the groups that are on.
 
 `.swarmnotes/` and `$SWARMNOTES_DIR` stay, so a store written by Examen 0.3.0
 or by the earlier SwarmNotes files loads with no migration. v0.2 made
