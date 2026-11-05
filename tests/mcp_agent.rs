@@ -180,3 +180,60 @@ fn validation_errors_are_one_actionable_line() {
     }
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn edit_corrects_own_live_notes_and_points_elsewhere_otherwise() {
+    let dir = scratch("edit");
+    let results = session(
+        &dir,
+        &[
+            ("relatum_init", "{}"),
+            ("relatum_new", r#"{"id":"plan/split","kind":"decision","summary":"Split work","body":"a does x","author":"parent","tags":["plan"]}"#),
+            ("relatum_edit", r#"{"id":"plan/split","author":"parent","summary":"Split work two ways","body":"a does x, b does y","tags":["plan","v2"]}"#),
+            ("relatum_get", r#"{"ids":["plan/split"]}"#),
+            ("relatum_edit", r#"{"id":"plan/split","author":"worker-a","body":"I would rather do y"}"#),
+            ("relatum_edit", r#"{"id":"plan/split","author":"parent"}"#),
+            ("relatum_edit", r#"{"id":"plan/split","author":"parent","tags":[]}"#),
+            ("relatum_new", r#"{"id":"plan/split","kind":"decision","summary":"again","body":"b"}"#),
+            ("relatum_new", r#"{"id":"plan/v3","kind":"decision","summary":"Three ways","body":"c too"}"#),
+            ("relatum_supersede", r#"{"old":"plan/split","new":"plan/v3"}"#),
+            ("relatum_edit", r#"{"id":"plan/split","author":"parent","body":"late fix"}"#),
+            ("relatum_edit", r#"{"id":"plan/v3","author":"worker-b","summary":"Three ways, b owns c"}"#),
+            ("relatum_edit", r#"{"id":"plan/v3"}"#),
+            ("relatum_edit", r#"{"id":"plan/v3","author":"worker-b","summary":"  "}"#),
+            ("relatum_check", "{}"),
+        ],
+    );
+    let structured = |i: usize| results[i].get("structuredContent").and_then(|s| s.get("result")).cloned().unwrap();
+    let ok = |i: usize| assert!(!is_error(&results[i]), "call {i}: {}", text(&results[i]));
+    let err = |i: usize, needle: &str| {
+        assert!(is_error(&results[i]), "call {i}: {}", text(&results[i]));
+        assert!(text(&results[i]).contains(needle), "call {i}: {}", text(&results[i]));
+    };
+    ok(2);
+    let today = relatum::clock::today();
+    assert_eq!(structured(2).get("updated").and_then(Value::as_str), Some(today.as_str()));
+    let note = structured(3).get("notes").and_then(Value::as_array).unwrap()[0].clone();
+    assert_eq!(note.get("summary").and_then(Value::as_str), Some("Split work two ways"));
+    assert_eq!(note.get("body").and_then(Value::as_str), Some("a does x, b does y"));
+    assert_eq!(note.get("kind").and_then(Value::as_str), Some("decision"));
+    assert_eq!(note.get("author").and_then(Value::as_str), Some("parent"));
+    assert_eq!(json::write_compact(note.get("tags").unwrap()), r#"["plan","v2"]"#);
+    err(4, "plan/split was written by parent, not worker-a; only its author edits it in place. Write a finding with your view, or write a replacement under a new id and call relatum_supersede with old set to this note.");
+    err(5, "nothing to change: pass summary, body, or tags");
+    ok(6);
+    let file = std::fs::read_to_string(dir.join(".swarmnotes/plan/split.md")).unwrap();
+    assert!(!file.contains("tags:"), "{file}");
+    err(7, "note already exists: plan/split. Pick another id. To change plan/split: relatum_edit for a small fix by its author, or write the replacement under a new id and call relatum_supersede with old=plan/split.");
+    ok(8);
+    ok(9);
+    err(10, "plan/split is superseded by plan/v3; edit the live note plan/v3 instead");
+    ok(11); // plan/v3 had no author; the editor becomes its author
+    let file = std::fs::read_to_string(dir.join(".swarmnotes/plan/v3.md")).unwrap();
+    assert!(file.contains("author: worker-b") && file.contains("summary: Three ways, b owns c"), "{file}");
+    err(12, "invalid arguments: missing required argument author. relatum_edit needs id and author.");
+    err(13, "missing summary");
+    ok(14);
+    assert_eq!(structured(14).get("ok"), Some(&Value::Bool(true)));
+    let _ = std::fs::remove_dir_all(dir);
+}

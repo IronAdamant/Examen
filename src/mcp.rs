@@ -159,7 +159,7 @@ fn call_tool(params: Option<&Value>) -> Result<Value, String> {
 }
 
 fn known_tool(name: &str) -> bool {
-    ["init", "ls", "get", "new", "supersede", "check"]
+    ["init", "ls", "get", "new", "edit", "supersede", "check"]
         .iter()
         .any(|suffix| name == prog::tool(suffix))
 }
@@ -291,6 +291,20 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
             ("new", json::s(&new)),
         ]));
     }
+    if name == prog::tool("edit") {
+        let id = require_present_str(name, args, "id")?;
+        let author = require_present_str(name, args, "author")?;
+        check_optional_str(name, args, "summary")?;
+        check_optional_str(name, args, "body")?;
+        let change = ops::NoteEdit {
+            summary: optional_string(args, "summary"),
+            body: optional_string(args, "body"),
+            tags: optional_tags(name, args)?,
+        };
+        let root = tool_root()?;
+        let updated = ops::edit_note(&root, &id, &author, change).map_err(note)?;
+        return Ok(json::obj(vec![("id", json::s(&id)), ("updated", json::s(&updated))]));
+    }
     if name == prog::tool("check") {
         let root = tool_root()?;
         let (errors, warnings) = ops::check(&root).map_err(note)?;
@@ -385,6 +399,21 @@ fn check_scope(root: &Path, scope: &str) -> Result<(), InvokeErr> {
 /// Error text for a tool result. An invalid id also says what a valid one
 /// looks like.
 fn agent_message(err: NoteError) -> String {
+    let (edit, supersede) = (prog::tool("edit"), prog::tool("supersede"));
+    if let Some(rest) = err.message.strip_prefix("note already exists: ") {
+        let id = rest.trim_end_matches(" (pick another id)");
+        return format!(
+            "note already exists: {id}. Pick another id. To change {id}: {edit} for a small fix by \
+             its author, or write the replacement under a new id and call {supersede} with old={id}."
+        );
+    }
+    if err.message.contains("; only its author edits it in place") {
+        return format!(
+            "{}. Write a finding with your view, or write a replacement under a new id and call \
+             {supersede} with old set to this note.",
+            err.message
+        );
+    }
     if err.message.starts_with("invalid note id:") {
         return format!(
             "{}. Ids are lowercase segments joined by /, each matching {}, e.g. net/retry-decision.",

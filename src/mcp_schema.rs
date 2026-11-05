@@ -54,6 +54,7 @@ include_superseded is true.\n",
         tool("ls", LS, ls_schema(), false),
         tool("get", GET, get_schema(), true),
         tool("new", NEW, new_schema(), true),
+        tool("edit", &edit_description(), edit_schema(), true),
         tool("supersede", &supersede, supersede_schema(), true),
         tool("check", CHECK, check_schema(), false),
     ])
@@ -247,6 +248,49 @@ fn new_schema() -> Value {
             ),
         ]),
         &["id", "kind", "summary", "body"],
+    )
+}
+
+fn edit_description() -> String {
+    format!(
+        "\
+Correct a note in place: replace its summary, body, or tags; updated becomes today.\n\
+\n\
+For small fixes by the note's author (author must match the note's author).\n\
+To replace a note, or to change one someone else wrote, write a new note and\n\
+call {supersede} with old set to this note. Superseded notes cannot be edited.\n",
+        supersede = prog::tool("supersede"),
+    )
+}
+
+fn edit_schema() -> Value {
+    let tags = json::obj(vec![
+        (
+            "anyOf",
+            json::arr(vec![
+                json::obj(vec![
+                    ("items", json::obj(vec![("type", json::s("string"))])),
+                    ("type", json::s("array")),
+                ]),
+                json::obj(vec![("type", json::s("null"))]),
+            ]),
+        ),
+        ("default", Value::Null),
+        ("title", json::s("Tags")),
+    ]);
+    schema(
+        &prog::tool("edit"),
+        json::obj(vec![
+            ("id", described(str_prop("Id", None), "The note to correct.")),
+            (
+                "author",
+                described(str_prop("Author", None), "Who is editing; must be the note's author."),
+            ),
+            ("summary", described(optional_str("Summary"), "New one-line summary, at most 100 characters.")),
+            ("body", described(optional_str("Body"), "New body; replaces the whole body.")),
+            ("tags", described(tags, "New tag slugs; [] removes the tags.")),
+        ]),
+        &["id", "author"],
     )
 }
 

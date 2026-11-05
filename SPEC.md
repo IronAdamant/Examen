@@ -138,7 +138,7 @@ than one child, it's worth making it a note.
 - Name the required note IDs in every brief.
 - Give each child (or group of children) a scope.
 - Changed your mind? Make a small correction by editing the note in place and
-  bumping `updated`. If the note is being replaced, write a new note and mark
+  bumping `updated` (`relatum_edit` over MCP). If the note is being replaced, write a new note and mark
   the old one `status: superseded` with `superseded_by` (`relatum supersede OLD NEW`).
 - Read children's reports. Fetch the note IDs they cite only when you need the
   details.
@@ -212,7 +212,12 @@ or PyPI. The names `examen` on those indexes belong to unrelated projects.
 npm packages are `@iron_adamant/relatum` and `@iron_adamant/relatum-<os>-<arch>`.
 
 Tools: `relatum_init`, `relatum_ls`, `relatum_get`, `relatum_new`,
-`relatum_supersede`, `relatum_check`. `relatum_init` only creates a store in
+`relatum_edit`, `relatum_supersede`, `relatum_check`. `relatum_edit` is the
+in-place correction of section 5: it replaces a live note's summary, body,
+or tags and sets `updated` to today, and refuses unless `author` matches
+the note's author (a note with no author takes the editor's). A superseded
+note cannot be edited; replacing a note is a new note plus
+`relatum_supersede`, and the errors say so. `relatum_init` only creates a store in
 the current working directory or at `SWARMNOTES_DIR`. A tool result is a
 JSON object in `structuredContent.result`, repeated as compact JSON text.
 A tool error names the next step: with no store, call `relatum_init` or set

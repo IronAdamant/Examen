@@ -21,7 +21,7 @@ The storage directory stays `.swarmnotes/`.
   Done when: <checkable end condition>
   ```
 - Always include `_shared/report-format` so reports come back short.
-- Changed your mind? Make a small fix by editing the note in place. If the
+- Changed your mind? Make a small fix in place (`relatum_edit`). If the
   note is being replaced, write a new one and supersede the old id.
 
 **When you are spawned (child):**
@@ -42,6 +42,7 @@ The storage directory stays `.swarmnotes/`.
 relatum_ls        scope, kind, tag, include_superseded; limit, since, details
 relatum_get       one or more IDs; follows superseded notes
 relatum_new       id, kind, summary, body, author, tags
+relatum_edit      id, author; summary, body, tags (small fix by the author)
 relatum_supersede old, new
 relatum_check
 relatum_init      create .swarmnotes/ if it is missing (cwd or SWARMNOTES_DIR only)

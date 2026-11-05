@@ -315,6 +315,77 @@ fn meta_truthy(value: &MetaVal) -> bool {
     }
 }
 
+/// Changes `edit_note` may make. `None` leaves a field as it is.
+#[derive(Debug, Default)]
+pub struct NoteEdit {
+    pub summary: Option<String>,
+    pub body: Option<String>,
+    /// An empty list removes the tags.
+    pub tags: Option<Vec<String>>,
+}
+
+/// A small correction in place (SPEC section 5): new summary, body, or tags
+/// and today's `updated`. Only the note's author may edit it, and only
+/// while it is live. Replacing a note is `supersede`. Returns the date
+/// written to `updated`.
+pub fn edit_note(root: &Path, note_id: &str, author: &str, change: NoteEdit) -> NoteResult<String> {
+    let author = author.trim();
+    if author.is_empty() {
+        return Err(NoteError::new("empty author"));
+    }
+    if change.summary.is_none() && change.body.is_none() && change.tags.is_none() {
+        return Err(NoteError::new("nothing to change: pass summary, body, or tags"));
+    }
+    let path = store::note_path(root, note_id)?;
+    let mut note = store::load(root, note_id)?;
+    if note.get_str("status") == Some("superseded") {
+        let next = note.get_str("superseded_by").unwrap_or("?");
+        return Err(NoteError::new(format!(
+            "{note_id} is superseded by {next}; edit the live note {next} instead"
+        )));
+    }
+    match note.get_str("author").map(str::trim) {
+        Some(owner) if !owner.is_empty() && owner != author => {
+            return Err(NoteError::new(format!(
+                "{note_id} was written by {owner}, not {author}; only its author edits it in place"
+            )));
+        }
+        Some(owner) if !owner.is_empty() => {}
+        _ => note.set("author", MetaVal::Str(author.to_string())),
+    }
+    if let Some(summary) = change.summary {
+        let summary = summary.trim();
+        if summary.is_empty() {
+            return Err(NoteError::new("missing summary"));
+        }
+        if summary.chars().count() > SUMMARY_MAX {
+            return Err(NoteError::new(format!(
+                "summary is {} chars; max {SUMMARY_MAX}",
+                summary.chars().count()
+            )));
+        }
+        note.set("summary", MetaVal::Str(summary.to_string()));
+    }
+    if let Some(body) = change.body {
+        if body.trim().is_empty() {
+            return Err(NoteError::new("empty body"));
+        }
+        note.body = body;
+    }
+    if let Some(tags) = change.tags {
+        let tags = parse_tags(Some(TagsIn::List(tags)))?;
+        if tags.is_empty() {
+            note.fields.retain(|(key, _)| key != "tags");
+        } else {
+            note.set("tags", MetaVal::List(tags));
+        }
+    }
+    let today = clock::today();
+    note.set("updated", MetaVal::Str(today.clone()));
+    meta::write_note_file(&path, &meta::render(&note)).map_err(|err| NoteError::new(err.to_string()))?;
+    Ok(today)
+}
+
 pub fn supersede_note(root: &Path, old: &str, new: &str) -> NoteResult<(String, String)> {
     if old == new {
         return Err(NoteError::new("a note cannot supersede itself"));

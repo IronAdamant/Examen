@@ -900,7 +900,8 @@ fn arg(json_text: &str) -> Value {
 }
 
 /// Relatum's intentional MCP output changes, folded on both sides:
-/// relatum_ls's opt-in limit, since, and details arguments are dropped from
+/// relatum_edit is dropped from tools/list; relatum_ls's opt-in limit,
+/// since, and details arguments are dropped from
 /// its input schema; tool descriptions are compared after docstring dedent
 /// (Python 3.13 does that at compile time; 3.12 keeps the indentation);
 /// argument validation errors are compared by shape (see fold_validation);
@@ -913,6 +914,8 @@ fn fold_intentional(responses: &mut [Value]) {
         let Some(reply) = pair.get_mut(1) else { continue };
         let Some(result) = member(reply, "result") else { continue };
         if let Some(Value::Array(tools)) = member(result, "tools") {
+            // relatum_edit has no Examen counterpart.
+            tools.retain(|tool| !matches!(tool.get("name"), Some(Value::String(name)) if name.ends_with("_edit")));
             for tool in tools.iter_mut() {
                 if let Some(Value::String(text)) = member(tool, "description") {
                     *text = dedent_doc(text);

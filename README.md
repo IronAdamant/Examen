@@ -104,7 +104,7 @@ env = { SWARMNOTES_DIR = "/absolute/path/to/project/.swarmnotes" }
 ```
 
 Tools: `relatum_init`, `relatum_ls`, `relatum_get`, `relatum_new`,
-`relatum_supersede`, `relatum_check`. Results are compact JSON, and errors
+`relatum_edit`, `relatum_supersede`, `relatum_check`. Results are compact JSON, and errors
 say what to call next. To teach agents the protocol, paste
 [AGENTS.snippet.md](AGENTS.snippet.md) into the project's `CLAUDE.md` or
 `AGENTS.md`, or install [skills/relatum](skills/relatum/SKILL.md).

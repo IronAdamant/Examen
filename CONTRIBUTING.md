@@ -63,6 +63,7 @@ and the MCP responses, stderr log, and files. It normalises only these:
 - The final component of each temp directory becomes `$DIR`.
 - CR and LF are folded on CLI pipes and MCP stderr. On Windows both
   programs write CRLF there, as CPython's text-mode streams do.
+- `relatum_edit` (Relatum only) is dropped from `tools/list`.
 - `relatum_ls`'s opt-in `limit`, `since`, and `details` arguments are
   dropped from its input schema. `relatum ls -h` lists the matching CLI
   flags; its usage line, which argparse errors print, is unchanged.
