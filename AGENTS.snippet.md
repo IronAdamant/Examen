@@ -24,7 +24,8 @@ The storage directory stays `.swarmnotes/`.
 - You may list your own scope and `_shared` for sibling findings and failed
   attempts. Don't browse other scopes unless told to.
 - Picking work up later? List with `details` and keep the newest
-  `modified`; next time pass it as `since` to see only what changed.
+  `modified`; next time pass it as `since` to see only what changed
+  (inclusive, to the second, so notes from that same second show again).
 - Record what you learn as `finding` notes and what failed as `attempt` notes
   in your scope. In your report, cite their IDs instead of restating them.
 - Only edit notes you wrote. If you disagree with one, write a `finding` and
