@@ -152,8 +152,80 @@ pub fn render(note: &Note) -> String {
     format!("{}\n\n{body}\n", lines.join("\n"))
 }
 
+/// Replace a note so a concurrent reader sees the old bytes or the new bytes,
+/// never a truncated file: write a temp file beside it, then rename over it.
 pub fn write_note_file(path: &Path, text: &str) -> std::io::Result<()> {
-    fs::write(path, file_bytes(text))
+    let tmp = temp_beside(path);
+    fs::write(&tmp, file_bytes(text))?;
+    let result = rename_over(&tmp, path);
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// Create a note only if `path` does not exist, publishing the whole file at
+/// once. A hard link from a complete temp file is an atomic exclusive create.
+/// Where hard links are unsupported, fall back to create_new and write.
+pub fn create_note_file(path: &Path, text: &str) -> std::io::Result<()> {
+    let bytes = file_bytes(text);
+    let tmp = temp_beside(path);
+    fs::write(&tmp, &bytes)?;
+    let linked = fs::hard_link(&tmp, path);
+    let _ = fs::remove_file(&tmp);
+    match linked {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Err(err),
+        Err(_) => {
+            use std::io::Write;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)?;
+            file.write_all(&bytes)
+        }
+    }
+}
+
+/// Temp name in the note's directory. It does not end in `.md`, so a store
+/// walk never lists it, even if a crash leaves it behind.
+fn temp_beside(path: &Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.subsec_nanos())
+        .unwrap_or(0);
+    path.with_file_name(format!(
+        ".{name}.{}-{}-{nanos}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+/// Before Rust 1.84, std renames on Windows with MoveFileExW, which refuses
+/// to replace a file that any process has open, even a reader that allows
+/// delete sharing. Readers hold a note for microseconds, so retry in 1 ms
+/// steps for up to about two seconds before giving up.
+fn rename_over(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match fs::rename(from, to) {
+            Err(err)
+                if cfg!(windows)
+                    && err.kind() == std::io::ErrorKind::PermissionDenied
+                    && tries < 2000 =>
+            {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            other => return other,
+        }
+    }
 }
 
 pub fn file_bytes(text: &str) -> Vec<u8> {

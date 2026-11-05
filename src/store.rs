@@ -3,7 +3,7 @@
 use crate::error::{NoteError, NoteResult};
 use crate::grammar::{self, DIR_NAME};
 use crate::meta::{self, MetaVal, Note};
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn find_root() -> NoteResult<PathBuf> {
@@ -136,13 +136,8 @@ pub fn create(root: &Path, note_id: &str, note: &Note) -> NoteResult<PathBuf> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| NoteError::new(err.to_string()))?;
     }
-    match OpenOptions::new().write(true).create_new(true).open(&path) {
-        Ok(mut file) => {
-            use std::io::Write;
-            file.write_all(&meta::file_bytes(&meta::render(note)))
-                .map_err(|err| NoteError::new(err.to_string()))?;
-            Ok(path)
-        }
+    match meta::create_note_file(&path, &meta::render(note)) {
+        Ok(()) => Ok(path),
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Err(NoteError::new(
             format!("note already exists: {note_id} (pick another id)"),
         )),
