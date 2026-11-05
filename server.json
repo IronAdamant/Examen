@@ -3,7 +3,7 @@
   "name": "io.github.IronAdamant/relatum",
   "title": "Relatum",
   "description": "Pass-by-reference notes for agent swarms, over the same files as the CLI.",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "repository": {
     "url": "https://github.com/IronAdamant/Relatum",
     "source": "github"
@@ -13,7 +13,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@iron_adamant/relatum",
-      "version": "1.1.0",
+      "version": "1.2.0",
       "runtimeHint": "npx",
       "packageArguments": [
         {

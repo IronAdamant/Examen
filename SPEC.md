@@ -229,6 +229,15 @@ wrong type, or a missing one, is a one-line error starting `invalid
 arguments: ` that names the field, the value received when short, what
 was expected, and how to call again.
 
+The server's tools are in groups: `core` (`relatum_ls`, `relatum_get`,
+`relatum_new`, always on), `revise` (`relatum_edit`, `relatum_supersede`),
+`lint` (`relatum_check`), and `setup` (`relatum_init`). `RELATUM_TOOLS` (an
+allowlist) and `RELATUM_DISABLE` (applied after it) take comma-separated
+group or tool names; they hide tools from `tools/list` and make calls to
+them return one line naming the variable to change. An unknown name, or
+disabling `core`, stops the server with exit code 2. They do not affect the
+CLI or the files, and with neither set the server is unchanged.
+
 `.swarmnotes/` and `$SWARMNOTES_DIR` stay, so a store written by Examen 0.3.0
 or by the earlier SwarmNotes files loads with no migration. v0.2 made
 structural frontmatter, tags, dates, empty bodies, and supersede chains into

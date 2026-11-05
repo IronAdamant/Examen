@@ -11,6 +11,7 @@ pub mod error;
 pub mod grammar;
 pub mod json;
 pub mod mcp;
+pub mod mcp_groups;
 pub mod mcp_schema;
 pub mod mcp_support;
 pub mod meta;
