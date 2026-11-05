@@ -65,7 +65,7 @@ fn supersede_never_shows_readers_a_torn_note() {
             i
         })
     };
-    let readers: Vec<_> = (0..2)
+    let readers: Vec<_> = (0..4)
         .map(|_| {
             let (path, stop, reads) = (path.clone(), stop.clone(), reads.clone());
             thread::spawn(move || {
@@ -90,7 +90,7 @@ fn supersede_never_shows_readers_a_torn_note() {
     stop.store(true, Ordering::Relaxed);
     let writes = writer.join().unwrap();
     let torn: Vec<String> = readers.into_iter().flat_map(|r| r.join().unwrap()).collect();
-    assert!(writes >= 5, "only {writes} writes");
+    assert!(writes > 20, "only {writes} writes; a busy note starved the writer");
     assert!(reads.load(Ordering::Relaxed) > 100, "too few reads");
     assert!(torn.is_empty(), "{} torn reads, first: {:?}", torn.len(), torn[0]);
     assert!(leftovers(&root).is_empty(), "{:?}", leftovers(&root));

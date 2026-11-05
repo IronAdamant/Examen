@@ -207,14 +207,13 @@ fn temp_beside(path: &Path) -> std::path::PathBuf {
     ))
 }
 
-/// Before Rust 1.84, std renames on Windows with MoveFileExW, which refuses
-/// to replace a file that any process has open, even a reader that allows
-/// delete sharing. Readers hold a note for microseconds, so retry in 1 ms
-/// steps for up to about two seconds before giving up.
+/// Replace `to` with `from`. On Windows a program that opened the note
+/// without delete sharing (an editor, a scanner) still blocks the replace for
+/// a moment, so retry in 1 ms steps for up to about two seconds.
 fn rename_over(from: &Path, to: &Path) -> std::io::Result<()> {
     let mut tries = 0;
     loop {
-        match fs::rename(from, to) {
+        match replace_file(from, to) {
             Err(err)
                 if cfg!(windows)
                     && err.kind() == std::io::ErrorKind::PermissionDenied
@@ -226,6 +225,88 @@ fn rename_over(from: &Path, to: &Path) -> std::io::Result<()> {
             other => return other,
         }
     }
+}
+
+#[cfg(not(windows))]
+fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::rename(from, to)
+}
+
+/// Before Rust 1.84, std renames on Windows with MoveFileExW, which cannot
+/// replace a file while any reader has it open, so a busy note starves the
+/// writer. POSIX-semantics rename (Windows 10 1607 and later) replaces it
+/// even then; readers that opened it keep the old bytes. Where the
+/// filesystem or OS lacks it, fall back to `fs::rename`.
+#[cfg(windows)]
+fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    match posix_rename(from, to) {
+        Err(err) if matches!(err.raw_os_error(), Some(1 | 50 | 87)) => fs::rename(from, to),
+        other => other,
+    }
+}
+
+#[cfg(windows)]
+fn posix_rename(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+
+    const DELETE: u32 = 0x0001_0000;
+    const SHARE_ALL: u32 = 0x1 | 0x2 | 0x4;
+    const FILE_RENAME_INFO_EX: i32 = 22;
+    const REPLACE_IF_EXISTS: u32 = 0x1;
+    const POSIX_SEMANTICS: u32 = 0x2;
+
+    /// FILE_RENAME_INFO with the Flags member of its leading union.
+    #[repr(C)]
+    struct RenameInfo {
+        flags: u32,
+        root_directory: *mut c_void,
+        file_name_length: u32,
+        file_name: [u16; 1],
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetFileInformationByHandle(
+            file: *mut c_void,
+            class: i32,
+            info: *const c_void,
+            size: u32,
+        ) -> i32;
+    }
+
+    let file = fs::OpenOptions::new()
+        .access_mode(DELETE)
+        .share_mode(SHARE_ALL)
+        .open(from)?;
+    let target: Vec<u16> = std::path::absolute(to)?.as_os_str().encode_wide().collect();
+    let name_bytes = target.len() * 2;
+    let size = std::mem::size_of::<RenameInfo>() + name_bytes;
+    // u64 words keep the buffer aligned for the struct's pointer field.
+    let mut buffer = vec![0u64; size.div_ceil(8)];
+    let info = buffer.as_mut_ptr().cast::<RenameInfo>();
+    let ok = unsafe {
+        // SAFETY: the buffer is zeroed, aligned, and large enough for the
+        // header plus the name and its terminating zero (file_name[1] plus
+        // name_bytes). The handle stays open for the call.
+        (*info).flags = REPLACE_IF_EXISTS | POSIX_SEMANTICS;
+        (*info).root_directory = std::ptr::null_mut();
+        (*info).file_name_length = name_bytes as u32;
+        let name = std::ptr::addr_of_mut!((*info).file_name).cast::<u16>();
+        std::ptr::copy_nonoverlapping(target.as_ptr(), name, target.len());
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FILE_RENAME_INFO_EX,
+            info.cast::<c_void>(),
+            size as u32,
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 pub fn file_bytes(text: &str) -> Vec<u8> {

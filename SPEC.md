@@ -46,6 +46,10 @@ A note's ID is its path relative to the root, without `.md`:
   is already informative before anyone fetches it.
 - IDs are created exclusively: if the file exists, pick another name. Never
   overwrite a note to "create" it.
+- The CLI and the MCP server publish each write whole: they write a temp
+  file beside the note (its name does not end in `.md`), then hard-link it
+  into place for a new note or rename it over the note for `supersede`. A
+  concurrent reader sees the old note or the new one, never a partial file.
 
 ## 3. Note file
 
