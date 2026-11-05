@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Notes are written whole: a temp file is hard-linked (new) or renamed
+  (supersede) into place, so a concurrent reader never sees a torn note.
+  On Windows the replace uses POSIX rename semantics, so busy readers no
+  longer starve a writer on Rust 1.83.
+- MCP tool descriptions drop docstring indentation, tool result text is
+  compact JSON, and errors for a missing store, an empty scope, and an
+  invalid id say what to call next. The CLI is unchanged.
+- The parity harness and benchmark are std-only Rust (`cargo run --example
+  parity` / `bench`); the Python scripts are removed.
+- README rewritten for newcomers; parity details moved to CONTRIBUTING.md.
+
 ## 1.0.1 - 2026-11-04
 
 - npm packages `@iron_adamant/relatum` and five platform packages
