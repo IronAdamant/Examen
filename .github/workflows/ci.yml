@@ -57,4 +57,4 @@ jobs:
           set -euo pipefail
           ext=""
           if [ "${{ runner.os }}" = "Windows" ]; then ext=".exe"; fi
-          python parity/harness.py "target/release/relatum${ext}" "target/release/relatum-mcp${ext}"
+          PARITY_PYTHON=python cargo run --release --locked --example parity -- "target/release/relatum${ext}" "target/release/relatum-mcp${ext}"

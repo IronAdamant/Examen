@@ -21,10 +21,43 @@ server are thin conveniences over the same `.swarmnotes/` files.
 ```sh
 cargo test --locked
 cargo build --release --locked
-python3 parity/harness.py target/release/relatum target/release/relatum-mcp
+cargo run --release --locked --example parity -- target/release/relatum target/release/relatum-mcp
 ```
 
-The harness needs the `python-legacy` branch
-(`git fetch origin python-legacy`) and, for the MCP half,
-`pip install "mcp==2.3.0"`. It does not use the network after that.
-GitHub Actions runs `cargo test` and the harness on Linux, macOS, and Windows.
+On Windows add `.exe` to both binary paths. Without MSVC build tools, use
+the `x86_64-pc-windows-gnu` toolchain; if another MinGW `gcc` is on `PATH`,
+build with `RUSTFLAGS="-C link-self-contained=yes"` so Rust links with its
+bundled linker.
+
+## Parity with Examen 0.3.0
+
+`parity/harness.rs` (the `parity` example) runs this binary and Examen 0.3.0
+side by side and exits 1 on any difference. `parity/bench.rs` (the `bench`
+example) prints the benchmark table in the README; its memory row reads
+`/proc`, so run it on Linux. Both are std only. The frozen Python release is
+the reference oracle: the harness loads `examen.py` from the
+`python-legacy` branch (`git fetch origin python-legacy`) into a Python 3
+process, and runs `python -m examen_mcp`, which needs
+`pip install "mcp==2.3.0"`. Set `PARITY_PYTHON` to choose the interpreter;
+otherwise `python3`, then `python`. Nothing uses the network after that.
+GitHub Actions runs `cargo test` and the harness on Linux, macOS, and
+Windows.
+
+The harness compares CLI exit codes, stdout, stderr, and note file bytes,
+and the MCP responses, stderr log, and files. It normalises only these:
+
+- Examen's program name is forced to `relatum` or `swarmnotes`. MCP text
+  has `relatum_` rewritten to `examen_`, then `Relatum` to `Examen`, then
+  `relatum` to `examen`. `1.0.1` and `1.0.0` become `0.3.0`
+  (`serverInfo.version`).
+- `https://errors.pydantic.dev/<version>/` becomes `.../VER/` on both
+  sides. Relatum pins 2.14 in `src/mcp_support.rs`.
+- The final component of each temp directory becomes `$DIR`.
+- CR and LF are folded on CLI pipes and MCP stderr. On Windows both
+  programs write CRLF there, as CPython's text-mode streams do.
+- For the `relatum_init` path rules, Examen's `examen_init` is called
+  in-process and a leading `Error executing tool ...:` is dropped from
+  Relatum's tool text.
+
+`init` still writes `author: examen` on `_shared/report-format`, so a store
+created on the same local date matches byte for byte.
