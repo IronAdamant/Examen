@@ -33,8 +33,12 @@ bundled linker.
 
 `parity/harness.rs` (the `parity` example) runs this binary and Examen 0.3.0
 side by side and exits 1 on any difference. `parity/bench.rs` (the `bench`
-example) prints the benchmark table in the README; its memory row reads
-`/proc`, so run it on Linux. Both are std only. The frozen Python release is
+example) prints the benchmark table in the README on Linux, macOS, and
+Windows; the memory row is the peak resident set (`/proc` VmHWM, `wait4`
+ru_maxrss, or the peak working set). On Windows point `PARITY_PYTHON` at a
+real interpreter, not a venv's `python.exe`, which is a launcher. CI runs
+the harness and the bench on all three and checks every table row. Both
+are std only. The frozen Python release is
 the reference oracle: the harness loads `examen.py` from the
 `python-legacy` branch (`git fetch origin python-legacy`) into a Python 3
 process, and runs `python -m examen_mcp`, which needs

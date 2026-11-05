@@ -1,7 +1,10 @@
 //! Measure Examen 0.3.0 against the Relatum release binary on one machine.
 //!
 //! Prints a markdown table of medians. Exits 1 if any Rust median is not lower.
-//! The memory row reads peak RSS (VmHWM) from /proc, so it needs Linux.
+//! The memory row is peak resident memory: VmHWM from /proc on Linux, the
+//! peak working set on Windows, ru_maxrss from wait4 on macOS. On Windows,
+//! point PARITY_PYTHON at a real interpreter: a venv's python.exe is a
+//! launcher that runs Python in a second process.
 //!
 //! Usage: cargo run --release --locked --example bench -- RELATUM RELATUM_MCP
 
@@ -149,15 +152,26 @@ fn mcp_round(cmd: &Cmd, cwd: &Path, env: &[(String, String)], tool: &str) -> f64
     ms_since(start)
 }
 
-/// Peak resident set (VmHWM) in kilobytes, sampled from /proc while it runs.
+/// Peak resident set of one run, in kilobytes. Linux samples VmHWM from
+/// /proc while the process runs; Windows reads the exited process's peak
+/// working set; macOS reaps it with wait4 and reads ru_maxrss.
 fn rss_kb(cmd: &Cmd, cwd: &Path, env: &[(String, String)]) -> u64 {
-    let mut child = cmd
+    let child = cmd
         .command(cwd, env)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .unwrap_or_else(|err| fail(&format!("{}: {err}", cmd.repr())));
+    let peak = peak_kb(child);
+    if peak == 0 {
+        fail(&format!("no RSS sample for {}", cmd.repr()));
+    }
+    peak
+}
+
+#[cfg(target_os = "linux")]
+fn peak_kb(mut child: std::process::Child) -> u64 {
     let status = format!("/proc/{}/status", child.id());
     let mut peak = 0u64;
     loop {
@@ -176,10 +190,93 @@ fn rss_kb(cmd: &Cmd, cwd: &Path, env: &[(String, String)]) -> u64 {
         }
     }
     let _ = child.wait();
-    if peak == 0 {
-        fail(&format!("no RSS sample for {}", cmd.repr()));
-    }
     peak
+}
+
+#[cfg(windows)]
+fn peak_kb(mut child: std::process::Child) -> u64 {
+    use std::ffi::c_void;
+    use std::os::windows::io::AsRawHandle;
+
+    /// PROCESS_MEMORY_COUNTERS.
+    #[repr(C)]
+    #[derive(Default)]
+    struct Counters {
+        cb: u32,
+        page_fault_count: u32,
+        peak_working_set_size: usize,
+        working_set_size: usize,
+        quota_peak_paged_pool_usage: usize,
+        quota_paged_pool_usage: usize,
+        quota_peak_non_paged_pool_usage: usize,
+        quota_non_paged_pool_usage: usize,
+        pagefile_usage: usize,
+        peak_pagefile_usage: usize,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn K32GetProcessMemoryInfo(process: *mut c_void, counters: *mut Counters, cb: u32) -> i32;
+    }
+
+    // The handle stays open until `child` drops, so the exited process
+    // can still be queried.
+    if child.wait().is_err() {
+        return 0;
+    }
+    let mut counters = Counters {
+        cb: std::mem::size_of::<Counters>() as u32,
+        ..Counters::default()
+    };
+    // SAFETY: a live process handle and a correctly sized, writable struct.
+    let ok = unsafe { K32GetProcessMemoryInfo(child.as_raw_handle(), &mut counters, counters.cb) };
+    if ok == 0 {
+        return 0;
+    }
+    (counters.peak_working_set_size / 1024) as u64
+}
+
+#[cfg(target_os = "macos")]
+fn peak_kb(child: std::process::Child) -> u64 {
+    /// struct rusage: two timevals (16 bytes each), then 14 longs.
+    #[repr(C)]
+    struct Rusage {
+        utime: [i64; 2],
+        stime: [i64; 2],
+        maxrss: i64,
+        rest: [i64; 13],
+    }
+
+    extern "C" {
+        fn wait4(pid: i32, status: *mut i32, options: i32, rusage: *mut Rusage) -> i32;
+    }
+
+    let mut usage = Rusage {
+        utime: [0; 2],
+        stime: [0; 2],
+        maxrss: 0,
+        rest: [0; 13],
+    };
+    let mut status = 0;
+    loop {
+        // SAFETY: valid out-pointers; the pid is our unreaped child.
+        let pid = unsafe { wait4(child.id() as i32, &mut status, 0, &mut usage) };
+        if pid >= 0 {
+            break;
+        }
+        if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            return 0;
+        }
+    }
+    // ru_maxrss is in bytes on macOS. The child is reaped; dropping it
+    // without wait is fine.
+    (usage.maxrss.max(0) as u64) / 1024
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn peak_kb(mut child: std::process::Child) -> u64 {
+    let _ = child.wait();
+    0
 }
 
 fn copytree(from: &Path, to: &Path) {
@@ -390,7 +487,17 @@ fn main() {
     };
     let store = path_str(&small.join(".swarmnotes"));
     let py_mcp = Cmd(vec![python.clone(), "-m".into(), "examen_mcp".into()]);
-    let mcp_env = with_env(&[("PYTHONPATH", path_str(&legacy_dir)), ("SWARMNOTES_DIR", store.clone())]);
+    // Put the legacy dir first and keep any PYTHONPATH the caller set (for
+    // example a site-packages that holds the mcp package).
+    let python_path = match std::env::var_os("PYTHONPATH") {
+        Some(extra) if !extra.is_empty() => std::env::join_paths(
+            std::iter::once(legacy_dir.clone()).chain(std::env::split_paths(&extra)),
+        )
+        .map(|joined| joined.to_string_lossy().to_string())
+        .unwrap_or_else(|_| path_str(&legacy_dir)),
+        _ => path_str(&legacy_dir),
+    };
+    let mcp_env = with_env(&[("PYTHONPATH", python_path), ("SWARMNOTES_DIR", store.clone())]);
     let rs_env = with_env(&[("SWARMNOTES_DIR", store)]);
     let rs_mcp = Cmd(vec![path_str(&rust_mcp)]);
     let (mut py_samples, mut rs_samples) = (Vec::new(), Vec::new());
@@ -453,5 +560,36 @@ fn main() {
     if !slower.is_empty() {
         println!("NOT FASTER: {}", slower.join(", "));
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A child that lives a moment and touches a few megabytes.
+    fn busy_child() -> Command {
+        if cfg!(windows) {
+            let mut cmd = Command::new("cmd");
+            cmd.args(["/C", "ping -n 2 127.0.0.1 >NUL"]);
+            cmd
+        } else {
+            let mut cmd = Command::new("sh");
+            cmd.args(["-c", "sleep 0.3"]);
+            cmd
+        }
+    }
+
+    #[test]
+    fn peak_memory_of_a_child_is_measured_on_this_os() {
+        let child = busy_child()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let kb = peak_kb(child);
+        // Any real process maps at least a few hundred KB and far less than 1 GB.
+        assert!((200..1_000_000).contains(&kb), "peak {kb} KB");
     }
 }

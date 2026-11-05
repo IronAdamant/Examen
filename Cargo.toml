@@ -38,3 +38,5 @@ path = "parity/harness.rs"
 [[example]]
 name = "bench"
 path = "parity/bench.rs"
+# cargo test runs the peak-memory probe's own test.
+test = true
