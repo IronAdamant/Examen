@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.2.0 - 2026-11-05
+
+- MCP tool groups, per the suite's convention: `core` (`relatum_ls`,
+  `relatum_get`, `relatum_new`; always on), `revise` (`relatum_edit`,
+  `relatum_supersede`), `lint` (`relatum_check`), `setup`
+  (`relatum_init`). `RELATUM_TOOLS` is an allowlist of groups or tools,
+  `RELATUM_DISABLE` hides groups or tools after it. A hidden tool is absent
+  from `tools/list`, and a call to it returns one line naming the variable
+  to change. An unknown name, or disabling `core`, exits 2 at startup with
+  one stderr line. The initialize instructions gain one line listing the
+  groups on and off when either variable is set. With neither set, the
+  MCP output is byte-identical to 1.1.0. The CLI ignores both.
+
 ## 1.1.0 - 2026-11-05
 
 - Notes are written whole: a temp file is hard-linked (new) or renamed

@@ -1,6 +1,6 @@
 {
   "name": "@iron_adamant/relatum-windows-x64",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Platform binary for Relatum. Populated by the GitHub Release workflow; not published from a pull request.",
   "license": "MIT",
   "os": ["win32"],
