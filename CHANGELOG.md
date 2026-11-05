@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 - 2026-11-05
 
 - Notes are written whole: a temp file is hard-linked (new) or renamed
   (supersede) into place, so a concurrent reader never sees a torn note.

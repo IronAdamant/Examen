@@ -544,7 +544,7 @@ fn main() {
     let row = bench.rows.last().expect("row");
     println!("memory: python {:.0} rust {:.0} KB", row.py, row.rs);
 
-    println!("\n| Row | Python 0.3.0 | Relatum 1.0.1 |");
+    println!("\n| Row | Python 0.3.0 | Relatum {} |", env!("CARGO_PKG_VERSION"));
     println!("|---|---:|---:|");
     let mut slower = Vec::new();
     for row in &bench.rows {

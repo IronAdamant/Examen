@@ -328,8 +328,8 @@ fn norm_mcp(text: &str) -> String {
         .replace("Relatum", "Examen")
         .replace("relatum", "examen");
     // serverInfo.version is the Cargo package version. Examen 0.3.0 reported
-    // 0.3.0. Rewrite the Relatum versions this tree has shipped.
-    text.replace("1.0.1", "0.3.0").replace("1.0.0", "0.3.0")
+    // 0.3.0, so map this build's version onto it.
+    text.replace(env!("CARGO_PKG_VERSION"), "0.3.0")
 }
 
 /// `https://errors.pydantic.dev/<digits>.<digits>/` -> `.../VER/`.

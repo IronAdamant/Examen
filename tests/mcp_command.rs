@@ -63,5 +63,6 @@ fn assert_initialize(bin: &str, args: &[&str]) {
         output.status.code()
     );
     assert!(stdout.contains("\"name\":\"relatum\""), "{stdout}");
-    assert!(stdout.contains("\"version\":\"1.0.1\""), "{stdout}");
+    let version = format!("\"version\":\"{}\"", env!("CARGO_PKG_VERSION"));
+    assert!(stdout.contains(&version), "{stdout}");
 }

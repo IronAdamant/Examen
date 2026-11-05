@@ -1,6 +1,6 @@
 {
   "name": "@iron_adamant/relatum",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Launcher for the Relatum notes binary. The Rust build has no npm dependencies.",
   "license": "MIT",
   "repository": {
@@ -17,11 +17,11 @@
     "bin"
   ],
   "optionalDependencies": {
-    "@iron_adamant/relatum-linux-x64": "1.0.1",
-    "@iron_adamant/relatum-linux-arm64": "1.0.1",
-    "@iron_adamant/relatum-darwin-x64": "1.0.1",
-    "@iron_adamant/relatum-darwin-arm64": "1.0.1",
-    "@iron_adamant/relatum-windows-x64": "1.0.1"
+    "@iron_adamant/relatum-linux-x64": "1.1.0",
+    "@iron_adamant/relatum-linux-arm64": "1.1.0",
+    "@iron_adamant/relatum-darwin-x64": "1.1.0",
+    "@iron_adamant/relatum-darwin-arm64": "1.1.0",
+    "@iron_adamant/relatum-windows-x64": "1.1.0"
   },
   "engines": {
     "node": ">=18"
