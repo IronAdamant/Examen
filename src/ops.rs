@@ -129,8 +129,12 @@ pub fn list_notes(
         }
     }
     let mut rows = Vec::new();
-    for (note_id, path) in store::iter_notes(root, scope.trim_matches('/'))? {
-        let note = meta::parse(&meta::read_note_text(&path)?);
+    let found = store::iter_notes(root, scope.trim_matches('/'))?;
+    let paths: Vec<&Path> = found.iter().map(|(_, path)| path.as_path()).collect();
+    let texts = meta::read_note_texts(&paths);
+    for ((note_id, _), text) in found.iter().zip(texts) {
+        let note_id = note_id.clone();
+        let note = meta::parse(&text?);
         let status = note.get_str("status").unwrap_or("active").to_string();
         if status == "superseded" && !include_superseded {
             continue;
@@ -262,15 +266,18 @@ pub fn supersede_note(root: &Path, old: &str, new: &str) -> NoteResult<(String, 
 pub fn check(root: &Path) -> NoteResult<(Vec<String>, Vec<String>)> {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
-    for (note_id, path) in store::iter_notes(root, "")? {
+    let found = store::iter_notes(root, "")?;
+    let paths: Vec<&Path> = found.iter().map(|(_, path)| path.as_path()).collect();
+    let texts = meta::read_note_texts(&paths);
+    for ((note_id, _), text) in found.iter().zip(texts) {
         let where_ = format!("{note_id}:");
-        if !grammar::valid_id(&note_id) {
+        if !grammar::valid_id(note_id) {
             errors.push(format!(
                 "{where_} invalid id (segments must match {})",
                 grammar::SEGMENT
             ));
         }
-        let text = match meta::read_note_text(&path) {
+        let text = match text {
             Ok(text) => text,
             Err(err) => {
                 errors.push(format!("{where_} {err}"));

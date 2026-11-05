@@ -44,10 +44,50 @@ impl Note {
 }
 
 pub fn read_note_text(path: &Path) -> NoteResult<String> {
-    let data = fs::read(path).map_err(|err| NoteError::new(err.to_string()))?;
+    use std::io::Read;
+    // Notes are small. Reading into spare capacity skips the metadata call
+    // fs::read makes to size its buffer: one open, usually two reads.
+    let mut data = Vec::with_capacity(8192);
+    fs::File::open(path)
+        .and_then(|mut file| file.read_to_end(&mut data))
+        .map_err(|err| NoteError::new(err.to_string()))?;
     let data = data.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&data);
     let text = std::str::from_utf8(data).map_err(|_| NoteError::new("not valid utf-8"))?;
     Ok(text.replace("\r\n", "\n").replace('\r', "\n"))
+}
+
+/// Below this many notes a store is read on the calling thread.
+const PARALLEL_MIN: usize = 64;
+const PARALLEL_MAX_THREADS: usize = 8;
+
+/// `read_note_text` for many notes, results in input order. Opening a file
+/// is the cost of `ls` and `check` on a large store (tens of microseconds
+/// each on Windows), and opens overlap well, so large stores are read on up
+/// to eight threads.
+pub fn read_note_texts(paths: &[&Path]) -> Vec<NoteResult<String>> {
+    let threads = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .min(PARALLEL_MAX_THREADS);
+    if paths.len() < PARALLEL_MIN || threads < 2 {
+        return paths.iter().map(|path| read_note_text(path)).collect();
+    }
+    let chunk = paths.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = paths
+            .chunks(chunk)
+            .map(|part| {
+                scope.spawn(move || part.iter().map(|path| read_note_text(path)).collect::<Vec<_>>())
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| match worker.join() {
+                Ok(texts) => texts,
+                Err(panic) => std::panic::resume_unwind(panic),
+            })
+            .collect()
+    })
 }
 
 pub enum Block {
