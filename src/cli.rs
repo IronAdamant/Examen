@@ -80,16 +80,29 @@ fn dispatch(
             out.push('\n');
             Ok(0)
         }
-        Command::Ls { scope, kind, tag, all } => {
+        Command::Ls {
+            scope,
+            kind,
+            tag,
+            all,
+            limit,
+            since,
+            details,
+        } => {
+            let since = since.as_deref().map(ops::parse_since).transpose()?;
             let root = store::find_root()?;
-            let rows = ops::list_notes(
-                &root,
-                &scope,
-                kind.as_deref(),
-                tag.as_deref(),
-                all,
-            )?;
-            out.push_str(&ops::format_ls(&rows));
+            let query = ops::LsQuery {
+                scope,
+                kind,
+                tag,
+                include_superseded: all,
+                since,
+                limit,
+                details,
+            };
+            let listing = ops::list_notes_with(&root, &query)?;
+            out.push_str(&ops::format_ls(&listing.rows));
+            out.push_str(&ops::format_more(listing.more));
             Ok(0)
         }
         Command::Get { ids } => {

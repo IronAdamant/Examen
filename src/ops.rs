@@ -15,6 +15,49 @@ pub struct Row {
     pub summary: String,
     pub status: String,
     pub superseded_by: Option<String>,
+    /// Filled only when `LsQuery::details` is set.
+    pub details: Option<Details>,
+}
+
+/// Who wrote a note and when, for `ls` with details.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Details {
+    pub author: Option<String>,
+    pub updated: Option<String>,
+    /// File modification time, `YYYY-MM-DDTHH:MM:SSZ`.
+    pub modified: String,
+}
+
+/// `ls` arguments beyond scope/kind/tag/all. The defaults list exactly
+/// what `list_notes` lists.
+#[derive(Debug, Clone, Default)]
+pub struct LsQuery {
+    pub scope: String,
+    pub kind: Option<String>,
+    pub tag: Option<String>,
+    pub include_superseded: bool,
+    /// Only notes whose file changed at or after this many seconds since
+    /// the Unix epoch (UTC).
+    pub since: Option<i64>,
+    /// At most this many rows; the rest are counted in `Listing::more`.
+    pub limit: Option<usize>,
+    pub details: bool,
+}
+
+pub struct Listing {
+    pub rows: Vec<Row>,
+    /// Matching notes left out by `limit`.
+    pub more: usize,
+}
+
+/// `--since` / `since`: a UTC date or date-time.
+pub fn parse_since(text: &str) -> NoteResult<i64> {
+    clock::parse_utc(text).ok_or_else(|| {
+        NoteError::new(format!(
+            "since must be YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ (UTC), not {}",
+            py_repr(text)
+        ))
+    })
 }
 
 pub fn parse_tags(tags: Option<TagsIn>) -> NoteResult<Vec<String>> {
@@ -115,6 +158,19 @@ pub fn list_notes(
     tag: Option<&str>,
     include_superseded: bool,
 ) -> NoteResult<Vec<Row>> {
+    let query = LsQuery {
+        scope: scope.to_string(),
+        kind: kind.map(str::to_string),
+        tag: tag.map(str::to_string),
+        include_superseded,
+        ..LsQuery::default()
+    };
+    Ok(list_notes_with(root, &query)?.rows)
+}
+
+pub fn list_notes_with(root: &Path, query: &LsQuery) -> NoteResult<Listing> {
+    let kind = query.kind.as_deref();
+    let tag = query.tag.as_deref();
     if let Some(kind) = kind {
         if !KINDS.contains(&kind) {
             return Err(NoteError::new(format!(
@@ -128,11 +184,22 @@ pub fn list_notes(
             return Err(NoteError::new(format!("invalid tag: {tag}")));
         }
     }
+    if query.limit == Some(0) {
+        return Err(NoteError::new("limit must be at least 1"));
+    }
+    let timed = query.since.is_some() || query.details;
+    let mut found = store::walk_notes(root, query.scope.trim_matches('/'), timed)?;
+    if let Some(since) = query.since {
+        // Filter on the walk's timestamps, before any note is opened.
+        found.retain(|note| note.modified.map(clock::epoch_secs).unwrap_or(0) >= since);
+    }
+    let paths: Vec<&Path> = found.iter().map(|note| note.path.as_path()).collect();
+    let texts = meta::read_note_texts(&paths);
     let mut rows = Vec::new();
-    for (note_id, path) in store::iter_notes(root, scope.trim_matches('/'))? {
-        let note = meta::parse(&meta::read_note_text(&path)?);
+    for (entry, text) in found.iter().zip(texts) {
+        let note = meta::parse(&text?);
         let status = note.get_str("status").unwrap_or("active").to_string();
-        if status == "superseded" && !include_superseded {
+        if status == "superseded" && !query.include_superseded {
             continue;
         }
         if let Some(kind) = kind {
@@ -155,15 +222,26 @@ pub fn list_notes(
         } else {
             None
         };
+        let details = query.details.then(|| Details {
+            author: note.get_str("author").filter(|a| !a.is_empty()).map(str::to_string),
+            updated: note.get_str("updated").filter(|u| !u.is_empty()).map(str::to_string),
+            modified: clock::format_utc(entry.modified.map(clock::epoch_secs).unwrap_or(0)),
+        });
         rows.push(Row {
-            id: note_id,
+            id: entry.id.clone(),
             kind: note.get_str("kind").unwrap_or("?").to_string(),
             summary: note.get_str("summary").unwrap_or("").to_string(),
             status,
             superseded_by,
+            details,
         });
     }
-    Ok(rows)
+    let mut more = 0;
+    if let Some(limit) = query.limit {
+        more = rows.len().saturating_sub(limit);
+        rows.truncate(limit);
+    }
+    Ok(Listing { rows, more })
 }
 
 pub struct Resolved {
@@ -237,6 +315,77 @@ fn meta_truthy(value: &MetaVal) -> bool {
     }
 }
 
+/// Changes `edit_note` may make. `None` leaves a field as it is.
+#[derive(Debug, Default)]
+pub struct NoteEdit {
+    pub summary: Option<String>,
+    pub body: Option<String>,
+    /// An empty list removes the tags.
+    pub tags: Option<Vec<String>>,
+}
+
+/// A small correction in place (SPEC section 5): new summary, body, or tags
+/// and today's `updated`. Only the note's author may edit it, and only
+/// while it is live. Replacing a note is `supersede`. Returns the date
+/// written to `updated`.
+pub fn edit_note(root: &Path, note_id: &str, author: &str, change: NoteEdit) -> NoteResult<String> {
+    let author = author.trim();
+    if author.is_empty() {
+        return Err(NoteError::new("empty author"));
+    }
+    if change.summary.is_none() && change.body.is_none() && change.tags.is_none() {
+        return Err(NoteError::new("nothing to change: pass summary, body, or tags"));
+    }
+    let path = store::note_path(root, note_id)?;
+    let mut note = store::load(root, note_id)?;
+    if note.get_str("status") == Some("superseded") {
+        let next = note.get_str("superseded_by").unwrap_or("?");
+        return Err(NoteError::new(format!(
+            "{note_id} is superseded by {next}; edit the live note {next} instead"
+        )));
+    }
+    match note.get_str("author").map(str::trim) {
+        Some(owner) if !owner.is_empty() && owner != author => {
+            return Err(NoteError::new(format!(
+                "{note_id} was written by {owner}, not {author}; only its author edits it in place"
+            )));
+        }
+        Some(owner) if !owner.is_empty() => {}
+        _ => note.set("author", MetaVal::Str(author.to_string())),
+    }
+    if let Some(summary) = change.summary {
+        let summary = summary.trim();
+        if summary.is_empty() {
+            return Err(NoteError::new("missing summary"));
+        }
+        if summary.chars().count() > SUMMARY_MAX {
+            return Err(NoteError::new(format!(
+                "summary is {} chars; max {SUMMARY_MAX}",
+                summary.chars().count()
+            )));
+        }
+        note.set("summary", MetaVal::Str(summary.to_string()));
+    }
+    if let Some(body) = change.body {
+        if body.trim().is_empty() {
+            return Err(NoteError::new("empty body"));
+        }
+        note.body = body;
+    }
+    if let Some(tags) = change.tags {
+        let tags = parse_tags(Some(TagsIn::List(tags)))?;
+        if tags.is_empty() {
+            note.fields.retain(|(key, _)| key != "tags");
+        } else {
+            note.set("tags", MetaVal::List(tags));
+        }
+    }
+    let today = clock::today();
+    note.set("updated", MetaVal::Str(today.clone()));
+    meta::write_note_file(&path, &meta::render(&note)).map_err(|err| NoteError::new(err.to_string()))?;
+    Ok(today)
+}
+
 pub fn supersede_note(root: &Path, old: &str, new: &str) -> NoteResult<(String, String)> {
     if old == new {
         return Err(NoteError::new("a note cannot supersede itself"));
@@ -262,15 +411,18 @@ pub fn supersede_note(root: &Path, old: &str, new: &str) -> NoteResult<(String, 
 pub fn check(root: &Path) -> NoteResult<(Vec<String>, Vec<String>)> {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
-    for (note_id, path) in store::iter_notes(root, "")? {
+    let found = store::iter_notes(root, "")?;
+    let paths: Vec<&Path> = found.iter().map(|(_, path)| path.as_path()).collect();
+    let texts = meta::read_note_texts(&paths);
+    for ((note_id, _), text) in found.iter().zip(texts) {
         let where_ = format!("{note_id}:");
-        if !grammar::valid_id(&note_id) {
+        if !grammar::valid_id(note_id) {
             errors.push(format!(
                 "{where_} invalid id (segments must match {})",
                 grammar::SEGMENT
             ));
         }
-        let text = match meta::read_note_text(&path) {
+        let text = match text {
             Ok(text) => text,
             Err(err) => {
                 errors.push(format!("{where_} {err}"));
@@ -389,9 +541,23 @@ pub fn format_ls(rows: &[Row]) -> String {
         out.push_str("  ");
         out.push_str(&row.summary);
         out.push_str(&mark);
+        if let Some(details) = &row.details {
+            if let Some(author) = &details.author {
+                out.push_str(&format!("  by {author}"));
+            }
+            out.push_str(&format!("  at {}", details.modified));
+        }
         out.push('\n');
     }
     out
+}
+
+/// The line `ls --limit` prints after the rows when it left notes out.
+pub fn format_more(more: usize) -> String {
+    if more == 0 {
+        return String::new();
+    }
+    format!("... {more} more (raise --limit, narrow the scope, or use --since)\n")
 }
 
 pub fn format_get(resolved: &Resolved) -> String {

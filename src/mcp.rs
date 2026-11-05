@@ -4,15 +4,17 @@ use crate::error::NoteError;
 use crate::json::{self, Value};
 use crate::mcp_schema;
 use crate::mcp_support::{
-    InvokeErr, bool_or, check_optional_str, optional_string, optional_tags, path_is_null,
+    InvokeErr, bool_or, check_optional_str, optional_int, optional_string, optional_tags, path_is_null,
     require_present_str, require_str, require_string_list, store_for_init, string_or, type_error,
-    validate_ls,
+    validate_ls, Want,
 };
 use crate::ops::{self, TagsIn};
 use crate::prog;
 use crate::pystr::{py_list, py_repr};
+use crate::grammar::{self, DIR_NAME};
 use crate::store::{self, canonical_dir};
 use std::io::{BufRead, Write};
+use std::path::{Path, PathBuf};
 
 pub fn main_mcp(args: &[String]) -> i32 {
     if !args.is_empty() {
@@ -157,7 +159,7 @@ fn call_tool(params: Option<&Value>) -> Result<Value, String> {
 }
 
 fn known_tool(name: &str) -> bool {
-    ["init", "ls", "get", "new", "supersede", "check"]
+    ["init", "ls", "get", "new", "edit", "supersede", "check"]
         .iter()
         .any(|suffix| name == prog::tool(suffix))
 }
@@ -167,7 +169,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
         let path = require_str(args, "path", true)?;
         let path = path.unwrap_or(".");
         if path_is_null(args, "path") {
-            return Err(type_error(name, "path", "string_type", "Input should be a valid string", args));
+            return Err(type_error(name, "path", Want::Str, &Value::Null));
         }
         let store = store_for_init(path).map_err(|err| InvokeErr::Note(err.message))?;
         let root = store::ensure_store(&store).map_err(|err| InvokeErr::Note(err.message))?;
@@ -183,9 +185,27 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
         let kind = optional_string(args, "kind").filter(|text| !text.is_empty());
         let tag = optional_string(args, "tag").filter(|text| !text.is_empty());
         let include = bool_or(args, "include_superseded", false);
-        let root = store::find_root().map_err(note)?;
-        let rows = ops::list_notes(&root, scope, kind.as_deref(), tag.as_deref(), include).map_err(note)?;
-        let notes = rows
+        let details = bool_or(args, "details", false);
+        let limit = optional_int(name, args, "limit")?.map(|n| usize::try_from(n).unwrap_or(0));
+        let since = optional_string(args, "since")
+            .filter(|text| !text.is_empty())
+            .map(|text| ops::parse_since(&text))
+            .transpose()
+            .map_err(note)?;
+        let root = tool_root()?;
+        check_scope(&root, scope)?;
+        let query = ops::LsQuery {
+            scope: scope.to_string(),
+            kind,
+            tag,
+            include_superseded: include,
+            since,
+            limit,
+            details,
+        };
+        let listing = ops::list_notes_with(&root, &query).map_err(note)?;
+        let notes = listing
+            .rows
             .into_iter()
             .map(|row| {
                 let mut pairs = vec![
@@ -197,10 +217,23 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
                 if let Some(next) = row.superseded_by {
                     pairs.push(("superseded_by", json::s(&next)));
                 }
+                if let Some(details) = row.details {
+                    if let Some(author) = details.author {
+                        pairs.push(("author", json::s(&author)));
+                    }
+                    if let Some(updated) = details.updated {
+                        pairs.push(("updated", json::s(&updated)));
+                    }
+                    pairs.push(("modified", json::s(&details.modified)));
+                }
                 json::obj(pairs)
             })
             .collect();
-        return Ok(json::obj(vec![("notes", json::arr(notes))]));
+        let mut result = vec![("notes", json::arr(notes))];
+        if listing.more > 0 {
+            result.push(("more", Value::Number(listing.more.to_string())));
+        }
+        return Ok(json::obj(result));
     }
     if name == prog::tool("get") {
         let ids = require_string_list(name, args, "ids")?;
@@ -210,7 +243,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
                 prog::tool("get")
             )));
         }
-        let root = store::find_root().map_err(note)?;
+        let root = tool_root()?;
         let mut notes = Vec::new();
         let mut errors = Vec::new();
         for id in ids {
@@ -218,7 +251,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
                 Ok(resolved) => notes.push(fetched(&id, &resolved)),
                 Err(err) => errors.push(json::obj(vec![
                     ("id", json::s(&id)),
-                    ("error", json::s(&err.message)),
+                    ("error", json::s(&agent_message(err))),
                 ])),
             }
         }
@@ -235,7 +268,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
         check_optional_str(name, args, "author")?;
         let tags = optional_tags(name, args)?;
         let author = optional_string(args, "author");
-        let root = store::find_root().map_err(note)?;
+        let root = tool_root()?;
         ops::add_note(
             &root,
             &id,
@@ -251,15 +284,29 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
     if name == prog::tool("supersede") {
         let old = require_present_str(name, args, "old")?;
         let new = require_present_str(name, args, "new")?;
-        let root = store::find_root().map_err(note)?;
+        let root = tool_root()?;
         let (old, new) = ops::supersede_note(&root, &old, &new).map_err(note)?;
         return Ok(json::obj(vec![
             ("old", json::s(&old)),
             ("new", json::s(&new)),
         ]));
     }
+    if name == prog::tool("edit") {
+        let id = require_present_str(name, args, "id")?;
+        let author = require_present_str(name, args, "author")?;
+        check_optional_str(name, args, "summary")?;
+        check_optional_str(name, args, "body")?;
+        let change = ops::NoteEdit {
+            summary: optional_string(args, "summary"),
+            body: optional_string(args, "body"),
+            tags: optional_tags(name, args)?,
+        };
+        let root = tool_root()?;
+        let updated = ops::edit_note(&root, &id, &author, change).map_err(note)?;
+        return Ok(json::obj(vec![("id", json::s(&id)), ("updated", json::s(&updated))]));
+    }
     if name == prog::tool("check") {
-        let root = store::find_root().map_err(note)?;
+        let root = tool_root()?;
         let (errors, warnings) = ops::check(&root).map_err(note)?;
         return Ok(json::obj(vec![
             ("ok", json::bool_val(errors.is_empty())),
@@ -310,7 +357,71 @@ fn fetched(requested: &str, resolved: &ops::Resolved) -> Value {
 }
 
 fn note(err: NoteError) -> InvokeErr {
-    InvokeErr::Note(err.message)
+    InvokeErr::Note(agent_message(err))
+}
+
+/// An agent cannot run the CLI's `init`, so a missing store names the tool
+/// to call and the directory the server is looking from.
+fn tool_root() -> Result<PathBuf, InvokeErr> {
+    match store::locate().map_err(note)? {
+        Some(root) => Ok(root),
+        None => {
+            let here = std::env::current_dir()
+                .map(|dir| canonical_dir(dir).display().to_string())
+                .unwrap_or_else(|_| ".".to_string());
+            Err(InvokeErr::Note(format!(
+                "no {DIR_NAME}/ found in {here} or any parent. Call {init} to create one \
+                 there, or set SWARMNOTES_DIR to the store path in this server's MCP config.",
+                init = prog::tool("init"),
+            )))
+        }
+    }
+}
+
+/// A scope exists once a note is written under it. Say so instead of only
+/// "no such scope", so a child listing its own fresh scope knows what to do.
+fn check_scope(root: &Path, scope: &str) -> Result<(), InvokeErr> {
+    let scope = scope.trim_matches('/');
+    if store::scope_dir(root, scope).is_dir() {
+        return Ok(());
+    }
+    let next = if grammar::valid_id(scope) {
+        format!(
+            "Nothing is written there yet; {new} with an id like {scope}/<slug> creates it.",
+            new = prog::tool("new")
+        )
+    } else {
+        format!("{ls} with no scope lists every note.", ls = prog::tool("ls"))
+    };
+    Err(InvokeErr::Note(format!("no such scope: {scope}. {next}")))
+}
+
+/// Error text for a tool result. An invalid id also says what a valid one
+/// looks like.
+fn agent_message(err: NoteError) -> String {
+    let (edit, supersede) = (prog::tool("edit"), prog::tool("supersede"));
+    if let Some(rest) = err.message.strip_prefix("note already exists: ") {
+        let id = rest.trim_end_matches(" (pick another id)");
+        return format!(
+            "note already exists: {id}. Pick another id. To change {id}: {edit} for a small fix by \
+             its author, or write the replacement under a new id and call {supersede} with old={id}."
+        );
+    }
+    if err.message.contains("; only its author edits it in place") {
+        return format!(
+            "{}. Write a finding with your view, or write a replacement under a new id and call \
+             {supersede} with old set to this note.",
+            err.message
+        );
+    }
+    if err.message.starts_with("invalid note id:") {
+        return format!(
+            "{}. Ids are lowercase segments joined by /, each matching {}, e.g. net/retry-decision.",
+            err.message,
+            grammar::SEGMENT
+        );
+    }
+    err.message
 }
 
 fn tool_ok(value: Value) -> Value {
@@ -318,7 +429,8 @@ fn tool_ok(value: Value) -> Value {
         (
             "content",
             json::arr(vec![json::obj(vec![
-                ("text", json::s(&json::write_pretty(&value))),
+                // Compact: this text is what most hosts put in the model's context.
+                ("text", json::s(&json::write_compact(&value))),
                 ("type", json::s("text")),
             ])]),
         ),

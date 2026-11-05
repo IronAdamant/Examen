@@ -3,10 +3,25 @@
 use crate::error::{NoteError, NoteResult};
 use crate::grammar::{self, DIR_NAME};
 use crate::meta::{self, MetaVal, Note};
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 pub fn find_root() -> NoteResult<PathBuf> {
+    match locate()? {
+        Some(root) => Ok(root),
+        None => {
+            let prog = crate::prog::current_prog();
+            Err(NoteError::new(format!(
+                "no {DIR_NAME}/ found (run `{prog} init` or set SWARMNOTES_DIR)"
+            )))
+        }
+    }
+}
+
+/// `$SWARMNOTES_DIR`, else the nearest `.swarmnotes/` walking up from the
+/// working directory. `None` when there is no store.
+pub fn locate() -> NoteResult<Option<PathBuf>> {
     if let Some(env) = std::env::var_os("SWARMNOTES_DIR") {
         if !env.is_empty() {
             let raw = env.to_string_lossy().to_string();
@@ -16,7 +31,7 @@ pub fn find_root() -> NoteResult<PathBuf> {
                     "SWARMNOTES_DIR={raw} is not a directory"
                 )));
             }
-            return Ok(root);
+            return Ok(Some(root));
         }
     }
     let here = std::env::current_dir().map_err(|err| NoteError::new(err.to_string()))?;
@@ -25,14 +40,16 @@ pub fn find_root() -> NoteResult<PathBuf> {
     while let Some(dir) = cursor {
         let candidate = dir.join(DIR_NAME);
         if candidate.is_dir() {
-            return Ok(candidate);
+            return Ok(Some(candidate));
         }
         cursor = dir.parent();
     }
-    let prog = crate::prog::current_prog();
-    Err(NoteError::new(format!(
-        "no {DIR_NAME}/ found (run `{prog} init` or set SWARMNOTES_DIR)"
-    )))
+    Ok(None)
+}
+
+/// The directory a scope names under the store.
+pub fn scope_dir(root: &Path, scope: &str) -> PathBuf {
+    py_join(root, scope.trim_matches('/'))
 }
 
 pub fn note_path(root: &Path, note_id: &str) -> NoteResult<PathBuf> {
@@ -70,21 +87,43 @@ pub fn load(root: &Path, note_id: &str) -> NoteResult<Note> {
 }
 
 pub fn iter_notes(root: &Path, scope: &str) -> NoteResult<Vec<(String, PathBuf)>> {
+    Ok(walk_notes(root, scope, false)?
+        .into_iter()
+        .map(|found| (found.id, found.path))
+        .collect())
+}
+
+/// A note file found by a store walk.
+pub struct Found {
+    pub id: String,
+    pub path: PathBuf,
+    /// The file's modification time, when the walk was asked for it.
+    pub modified: Option<SystemTime>,
+}
+
+/// Every `*.md` under a scope, sorted by path. With `timed`, each entry
+/// carries its modification time (free from the directory listing on
+/// Windows, one lstat per file elsewhere).
+pub fn walk_notes(root: &Path, scope: &str, timed: bool) -> NoteResult<Vec<Found>> {
     let scope = scope.trim_matches('/');
     let base = py_join(root, scope);
     if !base.is_dir() {
         return Err(NoteError::new(format!("no such scope: {scope}")));
     }
     let mut files = Vec::new();
-    walk_md(&base, &mut files)?;
-    files.sort_by(|a, b| a.components().cmp(b.components()));
+    walk_md(&base, timed, &mut files)?;
+    files.sort_by(|a, b| a.0.components().cmp(b.0.components()));
     Ok(files
         .into_iter()
-        .map(|path| (note_id_of(root, &path), path))
+        .map(|(path, modified)| Found {
+            id: note_id_of(root, &path),
+            path,
+            modified,
+        })
         .collect())
 }
 
-fn walk_md(dir: &Path, out: &mut Vec<PathBuf>) -> NoteResult<()> {
+fn walk_md(dir: &Path, timed: bool, out: &mut Vec<(PathBuf, Option<SystemTime>)>) -> NoteResult<()> {
     let entries = fs::read_dir(dir).map_err(|err| NoteError::new(err.to_string()))?;
     for entry in entries {
         let entry = entry.map_err(|err| NoteError::new(err.to_string()))?;
@@ -95,14 +134,24 @@ fn walk_md(dir: &Path, out: &mut Vec<PathBuf>) -> NoteResult<()> {
             .map_err(|err| NoteError::new(err.to_string()))?;
         if ft.is_symlink() {
             if path.is_file() && is_md_name(&name) {
-                out.push(path);
+                let modified = if timed {
+                    fs::metadata(&path).and_then(|meta| meta.modified()).ok()
+                } else {
+                    None
+                };
+                out.push((path, modified));
             }
             continue;
         }
         if ft.is_dir() {
-            walk_md(&path, out)?;
+            walk_md(&path, timed, out)?;
         } else if ft.is_file() && is_md_name(&name) {
-            out.push(path);
+            let modified = if timed {
+                entry.metadata().and_then(|meta| meta.modified()).ok()
+            } else {
+                None
+            };
+            out.push((path, modified));
         }
     }
     Ok(())
@@ -136,13 +185,8 @@ pub fn create(root: &Path, note_id: &str, note: &Note) -> NoteResult<PathBuf> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| NoteError::new(err.to_string()))?;
     }
-    match OpenOptions::new().write(true).create_new(true).open(&path) {
-        Ok(mut file) => {
-            use std::io::Write;
-            file.write_all(&meta::file_bytes(&meta::render(note)))
-                .map_err(|err| NoteError::new(err.to_string()))?;
-            Ok(path)
-        }
+    match meta::create_note_file(&path, &meta::render(note)) {
+        Ok(()) => Ok(path),
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Err(NoteError::new(
             format!("note already exists: {note_id} (pick another id)"),
         )),

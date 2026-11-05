@@ -44,10 +44,50 @@ impl Note {
 }
 
 pub fn read_note_text(path: &Path) -> NoteResult<String> {
-    let data = fs::read(path).map_err(|err| NoteError::new(err.to_string()))?;
+    use std::io::Read;
+    // Notes are small. Reading into spare capacity skips the metadata call
+    // fs::read makes to size its buffer: one open, usually two reads.
+    let mut data = Vec::with_capacity(8192);
+    fs::File::open(path)
+        .and_then(|mut file| file.read_to_end(&mut data))
+        .map_err(|err| NoteError::new(err.to_string()))?;
     let data = data.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&data);
     let text = std::str::from_utf8(data).map_err(|_| NoteError::new("not valid utf-8"))?;
     Ok(text.replace("\r\n", "\n").replace('\r', "\n"))
+}
+
+/// Below this many notes a store is read on the calling thread.
+const PARALLEL_MIN: usize = 64;
+const PARALLEL_MAX_THREADS: usize = 8;
+
+/// `read_note_text` for many notes, results in input order. Opening a file
+/// is the cost of `ls` and `check` on a large store (tens of microseconds
+/// each on Windows), and opens overlap well, so large stores are read on up
+/// to eight threads.
+pub fn read_note_texts(paths: &[&Path]) -> Vec<NoteResult<String>> {
+    let threads = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .min(PARALLEL_MAX_THREADS);
+    if paths.len() < PARALLEL_MIN || threads < 2 {
+        return paths.iter().map(|path| read_note_text(path)).collect();
+    }
+    let chunk = paths.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = paths
+            .chunks(chunk)
+            .map(|part| {
+                scope.spawn(move || part.iter().map(|path| read_note_text(path)).collect::<Vec<_>>())
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| match worker.join() {
+                Ok(texts) => texts,
+                Err(panic) => std::panic::resume_unwind(panic),
+            })
+            .collect()
+    })
 }
 
 pub enum Block {
@@ -152,8 +192,161 @@ pub fn render(note: &Note) -> String {
     format!("{}\n\n{body}\n", lines.join("\n"))
 }
 
+/// Replace a note so a concurrent reader sees the old bytes or the new bytes,
+/// never a truncated file: write a temp file beside it, then rename over it.
 pub fn write_note_file(path: &Path, text: &str) -> std::io::Result<()> {
-    fs::write(path, file_bytes(text))
+    let tmp = temp_beside(path);
+    fs::write(&tmp, file_bytes(text))?;
+    let result = rename_over(&tmp, path);
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// Create a note only if `path` does not exist, publishing the whole file at
+/// once. A hard link from a complete temp file is an atomic exclusive create.
+/// Where hard links are unsupported, fall back to create_new and write.
+pub fn create_note_file(path: &Path, text: &str) -> std::io::Result<()> {
+    let bytes = file_bytes(text);
+    let tmp = temp_beside(path);
+    fs::write(&tmp, &bytes)?;
+    let linked = fs::hard_link(&tmp, path);
+    let _ = fs::remove_file(&tmp);
+    match linked {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => Err(err),
+        Err(_) => {
+            use std::io::Write;
+            let mut file = fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)?;
+            file.write_all(&bytes)
+        }
+    }
+}
+
+/// Temp name in the note's directory. It does not end in `.md`, so a store
+/// walk never lists it, even if a crash leaves it behind.
+fn temp_beside(path: &Path) -> std::path::PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|time| time.subsec_nanos())
+        .unwrap_or(0);
+    path.with_file_name(format!(
+        ".{name}.{}-{}-{nanos}.tmp",
+        std::process::id(),
+        SEQ.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+/// Replace `to` with `from`. On Windows a program that opened the note
+/// without delete sharing (an editor, a scanner) still blocks the replace for
+/// a moment, so retry in 1 ms steps for up to about two seconds.
+fn rename_over(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut tries = 0;
+    loop {
+        match replace_file(from, to) {
+            Err(err)
+                if cfg!(windows)
+                    && err.kind() == std::io::ErrorKind::PermissionDenied
+                    && tries < 2000 =>
+            {
+                tries += 1;
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            other => return other,
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::rename(from, to)
+}
+
+/// Before Rust 1.84, std renames on Windows with MoveFileExW, which cannot
+/// replace a file while any reader has it open, so a busy note starves the
+/// writer. POSIX-semantics rename (Windows 10 1607 and later) replaces it
+/// even then; readers that opened it keep the old bytes. Where the
+/// filesystem or OS lacks it, fall back to `fs::rename`.
+#[cfg(windows)]
+fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    match posix_rename(from, to) {
+        Err(err) if matches!(err.raw_os_error(), Some(1 | 50 | 87)) => fs::rename(from, to),
+        other => other,
+    }
+}
+
+#[cfg(windows)]
+fn posix_rename(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+
+    const DELETE: u32 = 0x0001_0000;
+    const SHARE_ALL: u32 = 0x1 | 0x2 | 0x4;
+    const FILE_RENAME_INFO_EX: i32 = 22;
+    const REPLACE_IF_EXISTS: u32 = 0x1;
+    const POSIX_SEMANTICS: u32 = 0x2;
+
+    /// FILE_RENAME_INFO with the Flags member of its leading union.
+    #[repr(C)]
+    struct RenameInfo {
+        flags: u32,
+        root_directory: *mut c_void,
+        file_name_length: u32,
+        file_name: [u16; 1],
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetFileInformationByHandle(
+            file: *mut c_void,
+            class: i32,
+            info: *const c_void,
+            size: u32,
+        ) -> i32;
+    }
+
+    let file = fs::OpenOptions::new()
+        .access_mode(DELETE)
+        .share_mode(SHARE_ALL)
+        .open(from)?;
+    let target: Vec<u16> = std::path::absolute(to)?.as_os_str().encode_wide().collect();
+    let name_bytes = target.len() * 2;
+    let size = std::mem::size_of::<RenameInfo>() + name_bytes;
+    // u64 words keep the buffer aligned for the struct's pointer field.
+    let mut buffer = vec![0u64; size.div_ceil(8)];
+    let info = buffer.as_mut_ptr().cast::<RenameInfo>();
+    let ok = unsafe {
+        // SAFETY: the buffer is zeroed, aligned, and large enough for the
+        // header plus the name and its terminating zero (file_name[1] plus
+        // name_bytes). The handle stays open for the call.
+        (*info).flags = REPLACE_IF_EXISTS | POSIX_SEMANTICS;
+        (*info).root_directory = std::ptr::null_mut();
+        (*info).file_name_length = name_bytes as u32;
+        let name = std::ptr::addr_of_mut!((*info).file_name).cast::<u16>();
+        std::ptr::copy_nonoverlapping(target.as_ptr(), name, target.len());
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FILE_RENAME_INFO_EX,
+            info.cast::<c_void>(),
+            size as u32,
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 pub fn file_bytes(text: &str) -> Vec<u8> {

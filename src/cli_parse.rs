@@ -22,6 +22,10 @@ pub enum Command {
         kind: Option<String>,
         tag: Option<String>,
         all: bool,
+        /// `--limit N`; values below 1 arrive as `Some(0)` and are refused.
+        limit: Option<usize>,
+        since: Option<String>,
+        details: bool,
     },
     Get {
         ids: Vec<String>,
@@ -259,6 +263,20 @@ fn parse_child(cmd: &str, args: &[String]) -> Result<Command, ChildFail> {
             kind: opt("--kind"),
             tag: opt("--tag"),
             all: opt("--all").is_some(),
+            limit: match opt("--limit") {
+                None => None,
+                Some(text) => match text.trim().parse::<i64>() {
+                    Ok(n) => Some(usize::try_from(n).unwrap_or(0)),
+                    Err(_) => {
+                        return Err(ChildFail::Message(format!(
+                            "argument --limit: invalid int value: {}",
+                            py_repr(&text)
+                        )))
+                    }
+                },
+            },
+            since: opt("--since"),
+            details: opt("--details").is_some(),
         },
         "get" => Command::Get { ids: positionals },
         "supersede" => Command::Supersede {
@@ -283,6 +301,9 @@ fn flags_for(cmd: &str) -> Vec<Flag> {
             Flag { name: "--kind", takes: true, required: false },
             Flag { name: "--tag", takes: true, required: false },
             Flag { name: "--all", takes: false, required: false },
+            Flag { name: "--limit", takes: true, required: false },
+            Flag { name: "--since", takes: true, required: false },
+            Flag { name: "--details", takes: false, required: false },
         ],
         _ => Vec::new(),
     }

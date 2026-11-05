@@ -28,3 +28,15 @@ path = "src/main.rs"
 [[bin]]
 name = "swarmnotes"
 path = "src/main.rs"
+
+# Parity tooling, std only. The frozen Python release on python-legacy is the
+# reference oracle. Run with `cargo run --release --locked --example parity`.
+[[example]]
+name = "parity"
+path = "parity/harness.rs"
+
+[[example]]
+name = "bench"
+path = "parity/bench.rs"
+# cargo test runs the peak-memory probe's own test.
+test = true

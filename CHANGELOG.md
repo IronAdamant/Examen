@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+- Notes are written whole: a temp file is hard-linked (new) or renamed
+  (supersede) into place, so a concurrent reader never sees a torn note.
+  On Windows the replace uses POSIX rename semantics, so busy readers no
+  longer starve a writer on Rust 1.83.
+- MCP tool descriptions drop docstring indentation, tool result text is
+  compact JSON, and errors for a missing store, an empty scope, and an
+  invalid id say what to call next. The CLI is unchanged.
+- The parity harness and benchmark are std-only Rust (`cargo run --example
+  parity` / `bench`); the Python scripts are removed.
+- README rewritten for newcomers; parity details moved to CONTRIBUTING.md.
+- `ls` and `check` read large stores on up to eight threads: on Windows a
+  2000-note `ls` or `check` drops from about 150 ms to about 55 ms.
+- `ls --limit N`, `--since TIME`, and `--details` (and `relatum_ls` `limit`,
+  `since`, `details`): opt-in, default output unchanged.
+- `relatum_edit`: a note's author corrects its summary, body, or tags in
+  place. Errors for an existing id point to `relatum_edit` and
+  `relatum_supersede`.
+- MCP argument errors are one line (field, value, expected, how to call
+  again) instead of pydantic's report. Intentional difference from Examen.
+- The bench's memory row works on Windows and macOS; CI runs the bench on
+  all three OSes and checks the table.
+
 ## 1.0.1 - 2026-11-04
 
 - npm packages `@iron_adamant/relatum` and five platform packages

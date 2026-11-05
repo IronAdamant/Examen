@@ -43,9 +43,9 @@ pub fn tools() -> Value {
     let supersede = format!(
         "\
 Mark old as replaced by new. new must already exist and resolve to a live note.\n\
-\n    \
-Later {get} calls on old follow the chain. {ls} hides old unless\n    \
-include_superseded is true.\n    ",
+\n\
+Later {get} calls on old follow the chain. {ls} hides old unless\n\
+include_superseded is true.\n",
         get = prog::tool("get"),
         ls = prog::tool("ls"),
     );
@@ -54,6 +54,7 @@ include_superseded is true.\n    ",
         tool("ls", LS, ls_schema(), false),
         tool("get", GET, get_schema(), true),
         tool("new", NEW, new_schema(), true),
+        tool("edit", &edit_description(), edit_schema(), true),
         tool("supersede", &supersede, supersede_schema(), true),
         tool("check", CHECK, check_schema(), false),
     ])
@@ -149,9 +150,53 @@ fn ls_schema() -> Value {
             ("kind", optional_str("Kind")),
             ("include_superseded", bool_prop("Include Superseded")),
             ("tag", optional_str("Tag")),
+            (
+                "limit",
+                described(
+                    optional_typed("Limit", "integer"),
+                    "Return at most this many notes. When notes are left out, the result                      has more (how many).",
+                ),
+            ),
+            (
+                "since",
+                described(
+                    optional_str("Since"),
+                    "Only notes written or changed at or after this UTC time:                      2026-11-05 or 2026-11-05T14:30:00Z. Use a modified value from an                      earlier details listing to see what is new.",
+                ),
+            ),
+            (
+                "details",
+                described(
+                    bool_prop("Details"),
+                    "Also return author, updated, and modified (file time, UTC) per note.",
+                ),
+            ),
         ]),
         &[],
     )
+}
+
+/// A property schema with a description, for arguments an LLM fills.
+fn described(property: Value, description: &str) -> Value {
+    let Value::Object(mut pairs) = property else {
+        return property;
+    };
+    pairs.insert(0, ("description".to_string(), json::s(description)));
+    Value::Object(pairs)
+}
+
+fn optional_typed(title: &str, type_name: &str) -> Value {
+    json::obj(vec![
+        (
+            "anyOf",
+            json::arr(vec![
+                json::obj(vec![("type", json::s(type_name))]),
+                json::obj(vec![("type", json::s("null"))]),
+            ]),
+        ),
+        ("default", Value::Null),
+        ("title", json::s(title)),
+    ])
 }
 
 fn get_schema() -> Value {
@@ -206,6 +251,49 @@ fn new_schema() -> Value {
     )
 }
 
+fn edit_description() -> String {
+    format!(
+        "\
+Correct a note in place: replace its summary, body, or tags; updated becomes today.\n\
+\n\
+For small fixes by the note's author (author must match the note's author).\n\
+To replace a note, or to change one someone else wrote, write a new note and\n\
+call {supersede} with old set to this note. Superseded notes cannot be edited.\n",
+        supersede = prog::tool("supersede"),
+    )
+}
+
+fn edit_schema() -> Value {
+    let tags = json::obj(vec![
+        (
+            "anyOf",
+            json::arr(vec![
+                json::obj(vec![
+                    ("items", json::obj(vec![("type", json::s("string"))])),
+                    ("type", json::s("array")),
+                ]),
+                json::obj(vec![("type", json::s("null"))]),
+            ]),
+        ),
+        ("default", Value::Null),
+        ("title", json::s("Tags")),
+    ]);
+    schema(
+        &prog::tool("edit"),
+        json::obj(vec![
+            ("id", described(str_prop("Id", None), "The note to correct.")),
+            (
+                "author",
+                described(str_prop("Author", None), "Who is editing; must be the note's author."),
+            ),
+            ("summary", described(optional_str("Summary"), "New one-line summary, at most 100 characters.")),
+            ("body", described(optional_str("Body"), "New body; replaces the whole body.")),
+            ("tags", described(tags, "New tag slugs; [] removes the tags.")),
+        ]),
+        &["id", "author"],
+    )
+}
+
 fn supersede_schema() -> Value {
     schema(
         &prog::tool("supersede"),
@@ -223,36 +311,36 @@ fn check_schema() -> Value {
 
 const INIT: &str = "\
 Create the default store and its _shared/report-format note.\n\
-\n    \
-Idempotent. path must be the current working directory, the directory in\n    \
-SWARMNOTES_DIR, or the project directory whose .swarmnotes is\n    \
-SWARMNOTES_DIR. Any other path is an error. Returns root (the store path)\n    \
-and report_format (its note id).\n    ";
+\n\
+Idempotent. path must be the current working directory, the directory in\n\
+SWARMNOTES_DIR, or the project directory whose .swarmnotes is\n\
+SWARMNOTES_DIR. Any other path is an error. Returns root (the store path)\n\
+and report_format (its note id).\n";
 
 const LS: &str = "\
 List notes as id, kind, summary, and status.\n\
-\n    \
-scope is a directory under the store; empty lists everything. kind filters\n    \
-to one of decision, constraint, convention, context, format, finding,\n    \
-attempt. Superseded notes are omitted unless include_superseded is true.\n    \
-tag filters to one slug. The store is .swarmnotes/ or $SWARMNOTES_DIR.\n    ";
+\n\
+scope is a directory under the store; empty lists everything. kind filters\n\
+to one of decision, constraint, convention, context, format, finding,\n\
+attempt. Superseded notes are omitted unless include_superseded is true.\n\
+tag filters to one slug. The store is .swarmnotes/ or $SWARMNOTES_DIR.\n";
 
 const GET: &str = "\
 Fetch one or more notes by ID. Follows superseded_by, including multi-hop chains.\n\
-\n    \
-Returns notes (the live note, with chain) and errors (ids that failed).\n    \
-Other ids are still returned when one id is missing.\n    ";
+\n\
+Returns notes (the live note, with chain) and errors (ids that failed).\n\
+Other ids are still returned when one id is missing.\n";
 
 const NEW: &str = "\
 Create a note. Fails if the id already exists; never overwrites.\n\
-\n    \
-kind is decision, constraint, convention, context, format, finding, or\n    \
-attempt. summary is one line, at most 100 characters. body is the fact\n    \
-(keep it under ~300 words). tags is a list of slugs.\n    ";
+\n\
+kind is decision, constraint, convention, context, format, finding, or\n\
+attempt. summary is one line, at most 100 characters. body is the fact\n\
+(keep it under ~300 words). tags is a list of slugs.\n";
 
 const CHECK: &str = "\
 Lint every note in the store.\n\
-\n    \
-ok is false when there are errors. warnings (long bodies, missing author\n    \
-or updated) do not fail the check. errors and warnings are the same\n    \
-strings the CLI prints.\n    ";
+\n\
+ok is false when there are errors. warnings (long bodies, missing author\n\
+or updated) do not fail the check. errors and warnings are the same\n\
+strings the CLI prints.\n";

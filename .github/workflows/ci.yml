@@ -57,4 +57,23 @@ jobs:
           set -euo pipefail
           ext=""
           if [ "${{ runner.os }}" = "Windows" ]; then ext=".exe"; fi
-          python parity/harness.py "target/release/relatum${ext}" "target/release/relatum-mcp${ext}"
+          PARITY_PYTHON=python cargo run --release --locked --example parity -- "target/release/relatum${ext}" "target/release/relatum-mcp${ext}"
+
+      - name: Bench (full table, every row faster)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ext=""
+          if [ "${{ runner.os }}" = "Windows" ]; then ext=".exe"; fi
+          PARITY_PYTHON=python cargo run --release --locked --example bench -- "target/release/relatum${ext}" "target/release/relatum-mcp${ext}" | tee bench.txt
+          grep -qxF '| Row | Python 0.3.0 | Relatum 1.0.1 |' bench.txt
+          rows=(
+            "cli startup (--help)" "mcp startup + ls round trip" "init empty"
+            "init on large store" "ls small" "get small" "check small" "ls large"
+            "get large" "check large" "new small" "new large" "supersede small"
+            "supersede large" "check big" "memory check big (RSS)"
+          )
+          for row in "${rows[@]}"; do
+            grep -qF "| $row | " bench.txt || { echo "missing row: $row"; exit 1; }
+          done
+          test "$(grep -c '^| ' bench.txt)" -eq $(( ${#rows[@]} + 1 ))

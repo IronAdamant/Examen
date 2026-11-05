@@ -46,6 +46,10 @@ A note's ID is its path relative to the root, without `.md`:
   is already informative before anyone fetches it.
 - IDs are created exclusively: if the file exists, pick another name. Never
   overwrite a note to "create" it.
+- The CLI and the MCP server publish each write whole: they write a temp
+  file beside the note (its name does not end in `.md`), then hard-link it
+  into place for a new note or rename it over the note for `supersede`. A
+  concurrent reader sees the old note or the new one, never a partial file.
 
 ## 3. Note file
 
@@ -134,7 +138,7 @@ than one child, it's worth making it a note.
 - Name the required note IDs in every brief.
 - Give each child (or group of children) a scope.
 - Changed your mind? Make a small correction by editing the note in place and
-  bumping `updated`. If the note is being replaced, write a new note and mark
+  bumping `updated` (`relatum_edit` over MCP). If the note is being replaced, write a new note and mark
   the old one `status: superseded` with `superseded_by` (`relatum supersede OLD NEW`).
 - Read children's reports. Fetch the note IDs they cite only when you need the
   details.
@@ -188,6 +192,17 @@ Warnings (printed, exit 0 when there are no errors):
 
 `relatum ls` hides `superseded` notes unless `--all`. With `--all`, a
 superseded row is marked `[-> <id>]`. Drafts are marked `[draft]`.
+Opt-in, and absent from the default output: `--limit N` prints at most N
+rows and then `... K more (...)`; `--since TIME` keeps notes whose file
+was modified at or after TIME, a UTC `YYYY-MM-DD` or
+`YYYY-MM-DDTHH:MM:SSZ` (every write sets it, so this is "written or
+changed since"; it is inclusive at one-second resolution, so a note written
+in the same second as TIME is listed again rather than missed);
+`--details` appends `by <author>` and `at <modified>`.
+The note format has no creation time; `updated` is the date of the last
+edit. `relatum_ls` takes the same `limit`, `since`, and `details`; it
+reports left-out rows as `more` and adds `author`, `updated`, and
+`modified` per note.
 `relatum get` prints the live note at the end of the chain and the path it
 followed.
 
@@ -199,8 +214,20 @@ or PyPI. The names `examen` on those indexes belong to unrelated projects.
 npm packages are `@iron_adamant/relatum` and `@iron_adamant/relatum-<os>-<arch>`.
 
 Tools: `relatum_init`, `relatum_ls`, `relatum_get`, `relatum_new`,
-`relatum_supersede`, `relatum_check`. `relatum_init` only creates a store in
-the current working directory or at `SWARMNOTES_DIR`.
+`relatum_edit`, `relatum_supersede`, `relatum_check`. `relatum_edit` is the
+in-place correction of section 5: it replaces a live note's summary, body,
+or tags and sets `updated` to today, and refuses unless `author` matches
+the note's author (a note with no author takes the editor's). A superseded
+note cannot be edited; replacing a note is a new note plus
+`relatum_supersede`, and the errors say so. `relatum_init` only creates a store in
+the current working directory or at `SWARMNOTES_DIR`. A tool result is a
+JSON object in `structuredContent.result`, repeated as compact JSON text.
+A tool error names the next step: with no store, call `relatum_init` or set
+`SWARMNOTES_DIR`; for a scope with no notes yet, write one with
+`relatum_new`; for an invalid id, the id grammar above. An argument of the
+wrong type, or a missing one, is a one-line error starting `invalid
+arguments: ` that names the field, the value received when short, what
+was expected, and how to call again.
 
 `.swarmnotes/` and `$SWARMNOTES_DIR` stay, so a store written by Examen 0.3.0
 or by the earlier SwarmNotes files loads with no migration. v0.2 made

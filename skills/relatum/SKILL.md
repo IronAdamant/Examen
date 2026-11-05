@@ -21,13 +21,16 @@ The storage directory stays `.swarmnotes/`.
   Done when: <checkable end condition>
   ```
 - Always include `_shared/report-format` so reports come back short.
-- Changed your mind? Make a small fix by editing the note in place. If the
+- Changed your mind? Make a small fix in place (`relatum_edit`). If the
   note is being replaced, write a new one and supersede the old id.
 
 **When you are spawned (child):**
 - Read every note in "Read first" before doing anything else.
 - You may list your own scope and `_shared` for sibling findings and failed
   attempts. Don't browse other scopes unless told to.
+- Picking work up later? List with `details` and keep the newest
+  `modified`; next time pass it as `since` to see only what changed
+  (inclusive, to the second, so notes from that same second show again).
 - Record what you learn as `finding` notes and what failed as `attempt` notes
   in your scope. In your report, cite their IDs instead of restating them.
 - Only edit notes you wrote. If you disagree with one, write a `finding` and
@@ -37,9 +40,10 @@ The storage directory stays `.swarmnotes/`.
 `.swarmnotes/` files as the CLI:
 
 ```
-relatum_ls        scope, kind, include_superseded
+relatum_ls        scope, kind, tag, include_superseded; limit, since, details
 relatum_get       one or more IDs; follows superseded notes
 relatum_new       id, kind, summary, body, author, tags
+relatum_edit      id, author; summary, body, tags (small fix by the author)
 relatum_supersede old, new
 relatum_check
 relatum_init      create .swarmnotes/ if it is missing (cwd or SWARMNOTES_DIR only)
@@ -48,7 +52,7 @@ relatum_init      create .swarmnotes/ if it is missing (cwd or SWARMNOTES_DIR on
 Otherwise use the CLI (`relatum`; `swarmnotes` is the same command):
 
 ```
-relatum ls [scope] [--kind K] [--tag T] [--all]
+relatum ls [scope] [--kind K] [--tag T] [--all] [--limit N] [--since TIME] [--details]
 relatum get ID [ID...]
 relatum new ID --kind K --summary "..." --author NAME --body "..."
 relatum supersede OLD NEW

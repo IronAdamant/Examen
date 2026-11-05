@@ -4,7 +4,7 @@ use crate::error::NoteError;
 use crate::grammar::DIR_NAME;
 use crate::json::Value;
 use crate::prog;
-use crate::pystr::{py_json_repr, py_repr, py_type_name};
+use crate::pystr::py_repr;
 use crate::store::canonical_dir;
 use std::path::{Path, PathBuf};
 
@@ -57,7 +57,8 @@ pub(crate) fn require_str<'a>(args: &'a Value, key: &str, defaulted: bool) -> Re
     match lookup(args, key) {
         Some(Value::String(text)) => Ok(Some(text)),
         None if defaulted => Ok(None),
-        other => Err(InvokeErr::Note(format!("bad {key}: {}", other.map(|v| py_json_repr(v)).unwrap_or_else(|| "missing".into())))),
+        Some(value) => Err(type_error(&prog::tool("init"), key, Want::Str, value)),
+        None => Err(type_error(&prog::tool("init"), key, Want::Str, &Value::Null)),
     }
 }
 
@@ -65,13 +66,7 @@ pub(crate) fn require_present_str(tool: &str, args: &Value, key: &str) -> Result
     match lookup(args, key) {
         Some(Value::String(text)) => Ok(text.clone()),
         None => Err(missing(tool, key, args)),
-        Some(value) => Err(type_error(
-            tool,
-            key,
-            "string_type",
-            "Input should be a valid string",
-            value,
-        )),
+        Some(value) => Err(type_error(tool, key, Want::Str, value)),
     }
 }
 
@@ -83,39 +78,22 @@ pub(crate) fn require_string_list(tool: &str, args: &Value, key: &str) -> Result
             for item in items {
                 match item {
                     Value::String(text) => out.push(text.clone()),
-                    other => {
-                        return Err(type_error(
-                            tool,
-                            key,
-                            "string_type",
-                            "Input should be a valid string",
-                            other,
-                        ));
+                    _ => {
+                        let list = Value::Array(items.clone());
+                        return Err(type_error(tool, key, Want::StrList, &list));
                     }
                 }
             }
             Ok(out)
         }
-        Some(value) => Err(type_error(
-            tool,
-            key,
-            "list_type",
-            "Input should be a valid list",
-            value,
-        )),
+        Some(value) => Err(type_error(tool, key, Want::StrList, value)),
     }
 }
 
 pub(crate) fn check_optional_str(tool: &str, args: &Value, key: &str) -> Result<(), InvokeErr> {
     match lookup(args, key) {
         None | Some(Value::Null) | Some(Value::String(_)) => Ok(()),
-        Some(value) => Err(type_error(
-            tool,
-            key,
-            "string_type",
-            "Input should be a valid string",
-            value,
-        )),
+        Some(value) => Err(type_error(tool, key, Want::Str, value)),
     }
 }
 
@@ -127,26 +105,15 @@ pub(crate) fn optional_tags(tool: &str, args: &Value) -> Result<Option<Vec<Strin
             for item in items {
                 match item {
                     Value::String(text) => out.push(text.clone()),
-                    other => {
-                        return Err(type_error(
-                            tool,
-                            "tags",
-                            "string_type",
-                            "Input should be a valid string",
-                            other,
-                        ));
+                    _ => {
+                        let list = Value::Array(items.clone());
+                        return Err(type_error(tool, "tags", Want::StrList, &list));
                     }
                 }
             }
             Ok(Some(out))
         }
-        Some(value) => Err(type_error(
-            tool,
-            "tags",
-            "list_type",
-            "Input should be a valid list",
-            value,
-        )),
+        Some(value) => Err(type_error(tool, "tags", Want::StrList, value)),
     }
 }
 
@@ -154,31 +121,80 @@ pub(crate) fn validate_ls(tool: &str, args: &Value) -> Result<(), InvokeErr> {
     check_optional_str(tool, args, "scope")?;
     check_optional_str(tool, args, "kind")?;
     check_optional_str(tool, args, "tag")?;
-    match lookup(args, "include_superseded") {
-        None | Some(Value::Bool(_)) => Ok(()),
-        Some(value) => Err(type_error(
-            tool,
-            "include_superseded",
-            "bool_type",
-            "Input should be a valid boolean",
-            value,
-        )),
+    check_optional_str(tool, args, "since")?;
+    for key in ["include_superseded", "details"] {
+        match lookup(args, key) {
+            None | Some(Value::Bool(_)) => {}
+            Some(value) => {
+                return Err(type_error(tool, key, Want::Bool, value))
+            }
+        }
+    }
+    optional_int(tool, args, "limit").map(|_| ())
+}
+
+/// An optional integer argument. `None` when absent or null.
+pub(crate) fn optional_int(tool: &str, args: &Value, key: &str) -> Result<Option<i64>, InvokeErr> {
+    match lookup(args, key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(text)) => match text.parse::<i64>() {
+            Ok(n) => Ok(Some(n)),
+            Err(_) => Err(type_error(tool, key, Want::Int, &Value::Number(text.clone()))),
+        },
+        Some(value) => Err(type_error(tool, key, Want::Int, value)),
     }
 }
 
-fn missing(tool: &str, key: &str, args: &Value) -> InvokeErr {
-    // Report every missing required field of this tool, in schema order.
-    let required: &[&str] = if tool == prog::tool("new") {
+/// What an argument should have been, for one-line validation errors.
+#[derive(Clone, Copy)]
+pub(crate) enum Want {
+    Str,
+    Bool,
+    Int,
+    StrList,
+}
+
+impl Want {
+    fn phrase(self) -> &'static str {
+        match self {
+            Want::Str => "a string",
+            Want::Bool => "true or false",
+            Want::Int => "an integer",
+            Want::StrList => "a list of strings",
+        }
+    }
+
+    fn example(self) -> &'static str {
+        match self {
+            Want::Str => "\"text\"",
+            Want::Bool => "true",
+            Want::Int => "5",
+            Want::StrList => "[\"net/retry\"]",
+        }
+    }
+}
+
+/// Every validation error starts with this. The parity harness relies on it.
+pub(crate) const INVALID: &str = "invalid arguments: ";
+
+/// Required arguments of each tool, in schema order.
+fn required_of(tool: &str) -> &'static [&'static str] {
+    if tool == prog::tool("new") {
         &["id", "kind", "summary", "body"]
     } else if tool == prog::tool("get") {
         &["ids"]
     } else if tool == prog::tool("supersede") {
         &["old", "new"]
-    } else if tool == prog::tool("init") {
-        &[]
+    } else if tool == prog::tool("edit") {
+        &["id", "author"]
     } else {
         &[]
-    };
+    }
+}
+
+fn missing(tool: &str, key: &str, args: &Value) -> InvokeErr {
+    // Report every missing required field of this tool, in schema order.
+    let required = required_of(tool);
     let mut fields: Vec<String> = required
         .iter()
         .filter(|name| lookup(args, name).is_none())
@@ -187,8 +203,13 @@ fn missing(tool: &str, key: &str, args: &Value) -> InvokeErr {
     if fields.is_empty() {
         fields.push(key.to_string());
     }
-    let text = validation_text(tool, &fields, args, &[]);
-    let mut sorted = fields.clone();
+    let word = if fields.len() == 1 { "argument" } else { "arguments" };
+    let text = format!(
+        "{INVALID}missing required {word} {}. {tool} needs {}.",
+        fields.join(", "),
+        and_list(required.iter().copied().chain((!required.contains(&key)).then_some(key)))
+    );
+    let mut sorted = fields;
     sorted.sort();
     InvokeErr::Validation {
         fields: sorted,
@@ -196,34 +217,44 @@ fn missing(tool: &str, key: &str, args: &Value) -> InvokeErr {
     }
 }
 
-pub(crate) fn type_error(tool: &str, key: &str, type_name: &str, sentence: &str, value: &Value) -> InvokeErr {
-    let detail = format!(
-        "{key}\n  {sentence} [type={type_name}, input_value={}, input_type={}]\n    For further information visit https://errors.pydantic.dev/2.14/v/{type_name}",
-        py_json_repr(value),
-        py_type_name(value)
-    );
-    InvokeErr::Validation {
-        fields: vec![key.to_string()],
-        text: format!("1 validation error for {tool}Arguments\n{detail}"),
+fn and_list<'a>(items: impl Iterator<Item = &'a str>) -> String {
+    let items: Vec<&str> = items.collect();
+    match items.len() {
+        0 => String::new(),
+        1 => items[0].to_string(),
+        2 => format!("{} and {}", items[0], items[1]),
+        n => format!("{}, and {}", items[..n - 1].join(", "), items[n - 1]),
     }
 }
 
-fn validation_text(tool: &str, missing: &[String], args: &Value, _extra: &[String]) -> String {
-    let n = missing.len();
-    let word = if n == 1 { "error" } else { "errors" };
-    let mut out = format!("{n} validation {word} for {tool}Arguments\n");
-    for (index, field) in missing.iter().enumerate() {
-        out.push_str(field);
-        out.push_str(&format!(
-            "\n  Field required [type=missing, input_value={}, input_type={}]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing",
-            py_json_repr(args),
-            py_type_name(args)
-        ));
-        if index + 1 != missing.len() {
-            out.push('\n');
-        }
+pub(crate) fn type_error(tool: &str, key: &str, want: Want, value: &Value) -> InvokeErr {
+    InvokeErr::Validation {
+        fields: vec![key.to_string()],
+        text: format!(
+            "{INVALID}{key} must be {}, got {}. Call {tool} again with {key} like {}.",
+            want.phrase(),
+            received(value),
+            want.example()
+        ),
     }
-    out
+}
+
+/// The value an agent sent, compact, when it is short; otherwise its kind.
+fn received(value: &Value) -> String {
+    let kind = match value {
+        Value::Null => return "null".to_string(),
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "list",
+        Value::Object(_) => "object",
+    };
+    let text = crate::json::write_compact(value);
+    if text.chars().count() <= 40 {
+        format!("{text} ({kind})")
+    } else {
+        format!("a long {kind}")
+    }
 }
 
 pub(crate) fn store_for_init(path: &str) -> Result<PathBuf, NoteError> {

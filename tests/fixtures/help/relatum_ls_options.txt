@@ -1,0 +1,9 @@
+options:
+  -h, --help    show this help message and exit
+  --kind KIND
+  --tag TAG
+  --all         include superseded notes
+  --limit N     show at most N notes
+  --since TIME  only notes written at or after TIME, in UTC: 2026-11-05 or
+                2026-11-05T14:30:00Z
+  --details     also show each note's author and modified time
