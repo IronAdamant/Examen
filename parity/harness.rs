@@ -901,11 +901,12 @@ fn arg(json_text: &str) -> Value {
 
 /// Relatum's intentional MCP output changes, folded on both sides:
 /// relatum_ls's opt-in limit, since, and details arguments are dropped from
-/// its input schema, tool descriptions are compared after docstring dedent
-/// (Python 3.13 does that at compile time; 3.12 keeps the indentation), and
-/// a tool result's
-/// JSON text is compared as data, because Relatum writes it compact where
-/// Examen indented it. `structuredContent` is still compared as-is.
+/// its input schema; tool descriptions are compared after docstring dedent
+/// (Python 3.13 does that at compile time; 3.12 keeps the indentation);
+/// argument validation errors are compared by shape (see fold_validation);
+/// and a tool result's JSON text is compared as data, because Relatum
+/// writes it compact where Examen indented it. `structuredContent` is still
+/// compared as-is.
 fn fold_intentional(responses: &mut [Value]) {
     for entry in responses.iter_mut() {
         let Value::Array(pair) = entry else { continue };
@@ -925,16 +926,43 @@ fn fold_intentional(responses: &mut [Value]) {
                 }
             }
         }
+        let is_error = matches!(member(result, "isError"), Some(Value::Bool(true)));
         if let Some(Value::Array(content)) = member(result, "content") {
             for item in content.iter_mut() {
                 if let Some(Value::String(text)) = member(item, "text") {
-                    if let Ok(parsed) = json::parse(text) {
+                    if is_error {
+                        if let Some(folded) = fold_validation(text) {
+                            *text = folded;
+                        }
+                    } else if let Ok(parsed) = json::parse(text) {
                         *text = dumps_sorted(&parsed);
                     }
                 }
             }
         }
     }
+}
+
+/// Argument validation errors are worded differently on purpose: Examen
+/// prints pydantic's multi-line report, Relatum one line that starts with
+/// "invalid arguments: ". Either shape becomes the same placeholder, keeping
+/// the tool name. Which fields were rejected is still compared, through the
+/// "rejected arguments" line both servers log to stderr. Any other error
+/// text is left alone.
+fn fold_validation(text: &str) -> Option<String> {
+    let rest = text.strip_prefix("Error executing tool ")?;
+    let (tool, detail) = rest.split_once(": ")?;
+    let pydantic = {
+        let digits = detail.bytes().take_while(u8::is_ascii_digit).count();
+        let after = &detail[digits..];
+        digits > 0
+            && (after.starts_with(" validation error for ") || after.starts_with(" validation errors for "))
+            && after
+                .split_once('\n')
+                .is_some_and(|(head, _)| head.ends_with(&format!("{tool}Arguments")))
+    };
+    let relatum = detail.starts_with("invalid arguments: ") && !detail.contains('\n');
+    (pydantic || relatum).then(|| format!("Error executing tool {tool}: <argument validation error>"))
 }
 
 /// Opt-in relatum_ls arguments Examen does not have.

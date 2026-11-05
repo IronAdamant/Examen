@@ -6,7 +6,7 @@ use crate::mcp_schema;
 use crate::mcp_support::{
     InvokeErr, bool_or, check_optional_str, optional_int, optional_string, optional_tags, path_is_null,
     require_present_str, require_str, require_string_list, store_for_init, string_or, type_error,
-    validate_ls,
+    validate_ls, Want,
 };
 use crate::ops::{self, TagsIn};
 use crate::prog;
@@ -169,7 +169,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
         let path = require_str(args, "path", true)?;
         let path = path.unwrap_or(".");
         if path_is_null(args, "path") {
-            return Err(type_error(name, "path", "string_type", "Input should be a valid string", args));
+            return Err(type_error(name, "path", Want::Str, &Value::Null));
         }
         let store = store_for_init(path).map_err(|err| InvokeErr::Note(err.message))?;
         let root = store::ensure_store(&store).map_err(|err| InvokeErr::Note(err.message))?;

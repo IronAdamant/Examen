@@ -165,9 +165,9 @@ fn mcp_limit_since_and_details() {
 
     for (args, needle) in [
         (r#"{"limit":0}"#, "limit must be at least 1"),
-        (r#"{"limit":"5"}"#, "Input should be a valid integer"),
+        (r#"{"limit":"5"}"#, "invalid arguments: limit must be an integer, got \"5\" (string). Call relatum_ls again with limit like 5."),
         (r#"{"since":"soon"}"#, "since must be YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ (UTC)"),
-        (r#"{"details":"yes"}"#, "Input should be a valid boolean"),
+        (r#"{"details":"yes"}"#, "invalid arguments: details must be true or false, got \"yes\" (string)."),
     ] {
         let result = call(args);
         assert_eq!(result.get("isError").and_then(Value::as_bool), Some(true), "{args}");

@@ -50,8 +50,16 @@ and the MCP responses, stderr log, and files. It normalises only these:
   has `relatum_` rewritten to `examen_`, then `Relatum` to `Examen`, then
   `relatum` to `examen`. `1.0.1` and `1.0.0` become `0.3.0`
   (`serverInfo.version`).
-- `https://errors.pydantic.dev/<version>/` becomes `.../VER/` on both
-  sides. Relatum pins 2.14 in `src/mcp_support.rs`.
+- **Intentional difference: argument validation errors.** Examen printed
+  pydantic's multi-line report with documentation URLs. Relatum prints one
+  line, `invalid arguments: <field> must be <type>, got <value>. Call
+  <tool> again with <field> like <example>.` or `invalid arguments:
+  missing required argument(s) <fields>. <tool> needs <all required>.`
+  The harness compares these by shape only: an error result whose text is
+  pydantic's report on one side and one `invalid arguments:` line on the
+  other becomes the same placeholder. `isError`, the tool name, and the
+  `rejected arguments: [...]` line both servers log to stderr (the exact
+  fields) are still compared. CLI argparse errors are unchanged.
 - The final component of each temp directory becomes `$DIR`.
 - CR and LF are folded on CLI pipes and MCP stderr. On Windows both
   programs write CRLF there, as CPython's text-mode streams do.

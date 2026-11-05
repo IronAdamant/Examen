@@ -135,3 +135,48 @@ fn errors_name_the_next_step() {
     assert!(text(&results[7]).contains("work/a/first"));
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn validation_errors_are_one_actionable_line() {
+    let dir = scratch("validation");
+    let long = "x".repeat(60);
+    let results = session(
+        &dir,
+        &[
+            ("relatum_init", "{}"),
+            ("relatum_new", r#"{"id":"only"}"#),
+            ("relatum_new", r#"{"id":"a","kind":"finding","summary":"s"}"#),
+            ("relatum_new", r#"{"id":"a","kind":"finding","summary":5,"body":"b"}"#),
+            ("relatum_new", r#"{"id":"a","kind":"finding","summary":"s","body":"b","tags":"net"}"#),
+            ("relatum_new", r#"{"id":"a","kind":"finding","summary":"s","body":"b","tags":["net",3]}"#),
+            ("relatum_get", r#"{"ids":"net/retry"}"#),
+            ("relatum_get", "{}"),
+            ("relatum_supersede", r#"{"old":"a"}"#),
+            ("relatum_ls", r#"{"include_superseded":"yes"}"#),
+            ("relatum_ls", &format!(r#"{{"scope":["{long}"]}}"#)),
+            ("relatum_init", r#"{"path":null}"#),
+        ],
+    );
+    let expected = [
+        "missing required arguments kind, summary, body. relatum_new needs id, kind, summary, and body.",
+        "missing required argument body. relatum_new needs id, kind, summary, and body.",
+        "summary must be a string, got 5 (number). Call relatum_new again with summary like \"text\".",
+        "tags must be a list of strings, got \"net\" (string). Call relatum_new again with tags like [\"net/retry\"].",
+        "tags must be a list of strings, got [\"net\",3] (list). Call relatum_new again with tags like [\"net/retry\"].",
+        "ids must be a list of strings, got \"net/retry\" (string). Call relatum_get again with ids like [\"net/retry\"].",
+        "missing required argument ids. relatum_get needs ids.",
+        "missing required argument new. relatum_supersede needs old and new.",
+        "include_superseded must be true or false, got \"yes\" (string). Call relatum_ls again with include_superseded like true.",
+        "scope must be a string, got a long list. Call relatum_ls again with scope like \"text\".",
+        "path must be a string, got null. Call relatum_init again with path like \"text\".",
+    ];
+    assert!(!is_error(&results[0]));
+    for (result, want) in results[1..].iter().zip(expected) {
+        assert!(is_error(result), "{want}");
+        let got = text(result);
+        let tool = got.strip_prefix("Error executing tool ").unwrap().split(':').next().unwrap();
+        assert_eq!(got, format!("Error executing tool {tool}: invalid arguments: {want}"));
+        assert!(!got.contains('\n') && !got.contains("pydantic") && !got.contains("http"), "{got}");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}

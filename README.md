@@ -173,7 +173,9 @@ target/release/relatum-mcp` repeats the measurement. It reads
 Examen 0.3.0 (Python) is frozen on the `python-legacy` branch. Relatum
 reads the same `.swarmnotes/` files and honours `SWARMNOTES_DIR`, with no
 migration. The CLI is `relatum` and the MCP tools are `relatum_*` instead
-of `examen_*`. The parity harness checks this build against Examen; see
+of `examen_*`. MCP argument errors are one line that says what to send,
+instead of pydantic's report. The parity harness checks this build
+against Examen; see
 [CONTRIBUTING.md](CONTRIBUTING.md). Changes are in
 [CHANGELOG.md](CHANGELOG.md).
 
