@@ -34,6 +34,9 @@ case "$os" in
     ;;
 esac
 
+ver="$(grep -m 1 '^version = ' Cargo.toml | cut -d '"' -f 2)"
+export VER="$ver"
+
 node -e '
 const fs = require("fs");
 const server = JSON.parse(fs.readFileSync("server.json", "utf8"));
@@ -61,7 +64,8 @@ if (!entry || entry.registryType !== "npm") throw new Error("registryType");
 if (entry.identifier !== "@iron_adamant/relatum") throw new Error("identifier");
 if (!entry.transport || entry.transport.type !== "stdio") throw new Error("transport");
 if (!entry.packageArguments || entry.packageArguments[0].value !== "mcp") throw new Error("mcp arg");
-if (entry.version !== "1.0.1" || pkg.version !== "1.0.1" || server.version !== "1.0.1") {
+const ver = process.env.VER;
+if (entry.version !== ver || pkg.version !== ver || server.version !== ver) {
   throw new Error("version");
 }
 '
@@ -95,7 +99,6 @@ for dir in "${dirs[@]}"; do
   npm pack --quiet --pack-destination "$out" "$dir" >/dev/null
 done
 
-ver="1.0.1"
 main_tgz="$out/iron_adamant-relatum-${ver}.tgz"
 plat_tgz="$out/iron_adamant-${pkg}-${ver}.tgz"
 test -f "$main_tgz"
@@ -119,7 +122,7 @@ help="$(node "$launcher" --help)"
 req='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}'
 resp="$(printf '%s\n' "$req" | node "$launcher" mcp)"
 [[ "$resp" == *'"name":"relatum"'* ]]
-[[ "$resp" == *'"version":"1.0.1"'* ]]
+[[ "$resp" == *"\"version\":\"${ver}\""* ]]
 
 mcp_launcher="$work/node_modules/@iron_adamant/relatum/bin/relatum-mcp.js"
 resp="$(printf '%s\n' "$req" | node "$mcp_launcher")"

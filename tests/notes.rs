@@ -376,7 +376,7 @@ fn skill_matches_agents_snippet_and_readme_names_the_rename_once() {
 fn package_name_is_the_only_rename_point_and_has_no_crates() {
     let cargo = include_str!("../Cargo.toml");
     assert!(cargo.contains("name = \"relatum\""));
-    assert!(cargo.contains("version = \"1.0.1\""));
+    assert!(cargo.contains(&format!("version = \"{}\"", relatum::VERSION)));
     assert!(cargo.contains("publish = false"));
     assert!(cargo.contains("name = \"relatum-mcp\""));
     assert!(cargo.contains("name = \"swarmnotes\""));
@@ -385,7 +385,11 @@ fn package_name_is_the_only_rename_point_and_has_no_crates() {
     let dev = cargo.split("[dev-dependencies]").nth(1).unwrap().split('[').next().unwrap();
     assert!(!dev.lines().any(|line| line.contains('=') && !line.trim().starts_with('#')));
     assert_eq!(relatum::NAME, "relatum");
-    assert_eq!(relatum::VERSION, "1.0.1");
+    assert_eq!(relatum::VERSION, env!("CARGO_PKG_VERSION"));
+    let server = include_str!("../server.json");
+    let npm = include_str!("../npm/relatum/package.json");
+    let pinned = format!("\"version\": \"{}\"", relatum::VERSION);
+    assert!(server.contains(&pinned) && npm.contains(&pinned), "server.json and npm/relatum must carry the crate version");
     for path in ["src"] {
         for file in rust_files(Path::new(env!("CARGO_MANIFEST_DIR")).join(path)) {
             let text = fs::read_to_string(&file).unwrap();
