@@ -55,6 +55,14 @@ and the MCP responses, stderr log, and files. It normalises only these:
 - The final component of each temp directory becomes `$DIR`.
 - CR and LF are folded on CLI pipes and MCP stderr. On Windows both
   programs write CRLF there, as CPython's text-mode streams do.
+- MCP tool descriptions are compared after docstring dedent. Relatum sends
+  them unindented; Examen's carry Python 3.12 docstring indentation (3.13
+  strips it).
+- A tool result's JSON text is compared as data. Relatum writes it compact;
+  Examen indented it. `structuredContent` is compared unchanged.
+- Relatum's MCP errors add a next step for a missing store, a scope with no
+  notes, and an invalid id. The session the harness drives does not hit
+  those three cases; `tests/mcp_agent.rs` covers them.
 - For the `relatum_init` path rules, Examen's `examen_init` is called
   in-process and a leading `Error executing tool ...:` is dropped from
   Relatum's tool text.

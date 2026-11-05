@@ -11,8 +11,10 @@ use crate::mcp_support::{
 use crate::ops::{self, TagsIn};
 use crate::prog;
 use crate::pystr::{py_list, py_repr};
+use crate::grammar::{self, DIR_NAME};
 use crate::store::{self, canonical_dir};
 use std::io::{BufRead, Write};
+use std::path::{Path, PathBuf};
 
 pub fn main_mcp(args: &[String]) -> i32 {
     if !args.is_empty() {
@@ -183,7 +185,8 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
         let kind = optional_string(args, "kind").filter(|text| !text.is_empty());
         let tag = optional_string(args, "tag").filter(|text| !text.is_empty());
         let include = bool_or(args, "include_superseded", false);
-        let root = store::find_root().map_err(note)?;
+        let root = tool_root()?;
+        check_scope(&root, scope)?;
         let rows = ops::list_notes(&root, scope, kind.as_deref(), tag.as_deref(), include).map_err(note)?;
         let notes = rows
             .into_iter()
@@ -210,7 +213,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
                 prog::tool("get")
             )));
         }
-        let root = store::find_root().map_err(note)?;
+        let root = tool_root()?;
         let mut notes = Vec::new();
         let mut errors = Vec::new();
         for id in ids {
@@ -218,7 +221,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
                 Ok(resolved) => notes.push(fetched(&id, &resolved)),
                 Err(err) => errors.push(json::obj(vec![
                     ("id", json::s(&id)),
-                    ("error", json::s(&err.message)),
+                    ("error", json::s(&agent_message(err))),
                 ])),
             }
         }
@@ -235,7 +238,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
         check_optional_str(name, args, "author")?;
         let tags = optional_tags(name, args)?;
         let author = optional_string(args, "author");
-        let root = store::find_root().map_err(note)?;
+        let root = tool_root()?;
         ops::add_note(
             &root,
             &id,
@@ -251,7 +254,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
     if name == prog::tool("supersede") {
         let old = require_present_str(name, args, "old")?;
         let new = require_present_str(name, args, "new")?;
-        let root = store::find_root().map_err(note)?;
+        let root = tool_root()?;
         let (old, new) = ops::supersede_note(&root, &old, &new).map_err(note)?;
         return Ok(json::obj(vec![
             ("old", json::s(&old)),
@@ -259,7 +262,7 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
         ]));
     }
     if name == prog::tool("check") {
-        let root = store::find_root().map_err(note)?;
+        let root = tool_root()?;
         let (errors, warnings) = ops::check(&root).map_err(note)?;
         return Ok(json::obj(vec![
             ("ok", json::bool_val(errors.is_empty())),
@@ -310,7 +313,56 @@ fn fetched(requested: &str, resolved: &ops::Resolved) -> Value {
 }
 
 fn note(err: NoteError) -> InvokeErr {
-    InvokeErr::Note(err.message)
+    InvokeErr::Note(agent_message(err))
+}
+
+/// An agent cannot run the CLI's `init`, so a missing store names the tool
+/// to call and the directory the server is looking from.
+fn tool_root() -> Result<PathBuf, InvokeErr> {
+    match store::locate().map_err(note)? {
+        Some(root) => Ok(root),
+        None => {
+            let here = std::env::current_dir()
+                .map(|dir| canonical_dir(dir).display().to_string())
+                .unwrap_or_else(|_| ".".to_string());
+            Err(InvokeErr::Note(format!(
+                "no {DIR_NAME}/ found in {here} or any parent. Call {init} to create one \
+                 there, or set SWARMNOTES_DIR to the store path in this server's MCP config.",
+                init = prog::tool("init"),
+            )))
+        }
+    }
+}
+
+/// A scope exists once a note is written under it. Say so instead of only
+/// "no such scope", so a child listing its own fresh scope knows what to do.
+fn check_scope(root: &Path, scope: &str) -> Result<(), InvokeErr> {
+    let scope = scope.trim_matches('/');
+    if store::scope_dir(root, scope).is_dir() {
+        return Ok(());
+    }
+    let next = if grammar::valid_id(scope) {
+        format!(
+            "Nothing is written there yet; {new} with an id like {scope}/<slug> creates it.",
+            new = prog::tool("new")
+        )
+    } else {
+        format!("{ls} with no scope lists every note.", ls = prog::tool("ls"))
+    };
+    Err(InvokeErr::Note(format!("no such scope: {scope}. {next}")))
+}
+
+/// Error text for a tool result. An invalid id also says what a valid one
+/// looks like.
+fn agent_message(err: NoteError) -> String {
+    if err.message.starts_with("invalid note id:") {
+        return format!(
+            "{}. Ids are lowercase segments joined by /, each matching {}, e.g. net/retry-decision.",
+            err.message,
+            grammar::SEGMENT
+        );
+    }
+    err.message
 }
 
 fn tool_ok(value: Value) -> Value {
@@ -318,7 +370,8 @@ fn tool_ok(value: Value) -> Value {
         (
             "content",
             json::arr(vec![json::obj(vec![
-                ("text", json::s(&json::write_pretty(&value))),
+                // Compact: this text is what most hosts put in the model's context.
+                ("text", json::s(&json::write_compact(&value))),
                 ("type", json::s("text")),
             ])]),
         ),

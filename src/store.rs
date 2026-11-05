@@ -7,6 +7,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn find_root() -> NoteResult<PathBuf> {
+    match locate()? {
+        Some(root) => Ok(root),
+        None => {
+            let prog = crate::prog::current_prog();
+            Err(NoteError::new(format!(
+                "no {DIR_NAME}/ found (run `{prog} init` or set SWARMNOTES_DIR)"
+            )))
+        }
+    }
+}
+
+/// `$SWARMNOTES_DIR`, else the nearest `.swarmnotes/` walking up from the
+/// working directory. `None` when there is no store.
+pub fn locate() -> NoteResult<Option<PathBuf>> {
     if let Some(env) = std::env::var_os("SWARMNOTES_DIR") {
         if !env.is_empty() {
             let raw = env.to_string_lossy().to_string();
@@ -16,7 +30,7 @@ pub fn find_root() -> NoteResult<PathBuf> {
                     "SWARMNOTES_DIR={raw} is not a directory"
                 )));
             }
-            return Ok(root);
+            return Ok(Some(root));
         }
     }
     let here = std::env::current_dir().map_err(|err| NoteError::new(err.to_string()))?;
@@ -25,14 +39,16 @@ pub fn find_root() -> NoteResult<PathBuf> {
     while let Some(dir) = cursor {
         let candidate = dir.join(DIR_NAME);
         if candidate.is_dir() {
-            return Ok(candidate);
+            return Ok(Some(candidate));
         }
         cursor = dir.parent();
     }
-    let prog = crate::prog::current_prog();
-    Err(NoteError::new(format!(
-        "no {DIR_NAME}/ found (run `{prog} init` or set SWARMNOTES_DIR)"
-    )))
+    Ok(None)
+}
+
+/// The directory a scope names under the store.
+pub fn scope_dir(root: &Path, scope: &str) -> PathBuf {
+    py_join(root, scope.trim_matches('/'))
 }
 
 pub fn note_path(root: &Path, note_id: &str) -> NoteResult<PathBuf> {

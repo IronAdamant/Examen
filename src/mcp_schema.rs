@@ -43,9 +43,9 @@ pub fn tools() -> Value {
     let supersede = format!(
         "\
 Mark old as replaced by new. new must already exist and resolve to a live note.\n\
-\n    \
-Later {get} calls on old follow the chain. {ls} hides old unless\n    \
-include_superseded is true.\n    ",
+\n\
+Later {get} calls on old follow the chain. {ls} hides old unless\n\
+include_superseded is true.\n",
         get = prog::tool("get"),
         ls = prog::tool("ls"),
     );
@@ -223,36 +223,36 @@ fn check_schema() -> Value {
 
 const INIT: &str = "\
 Create the default store and its _shared/report-format note.\n\
-\n    \
-Idempotent. path must be the current working directory, the directory in\n    \
-SWARMNOTES_DIR, or the project directory whose .swarmnotes is\n    \
-SWARMNOTES_DIR. Any other path is an error. Returns root (the store path)\n    \
-and report_format (its note id).\n    ";
+\n\
+Idempotent. path must be the current working directory, the directory in\n\
+SWARMNOTES_DIR, or the project directory whose .swarmnotes is\n\
+SWARMNOTES_DIR. Any other path is an error. Returns root (the store path)\n\
+and report_format (its note id).\n";
 
 const LS: &str = "\
 List notes as id, kind, summary, and status.\n\
-\n    \
-scope is a directory under the store; empty lists everything. kind filters\n    \
-to one of decision, constraint, convention, context, format, finding,\n    \
-attempt. Superseded notes are omitted unless include_superseded is true.\n    \
-tag filters to one slug. The store is .swarmnotes/ or $SWARMNOTES_DIR.\n    ";
+\n\
+scope is a directory under the store; empty lists everything. kind filters\n\
+to one of decision, constraint, convention, context, format, finding,\n\
+attempt. Superseded notes are omitted unless include_superseded is true.\n\
+tag filters to one slug. The store is .swarmnotes/ or $SWARMNOTES_DIR.\n";
 
 const GET: &str = "\
 Fetch one or more notes by ID. Follows superseded_by, including multi-hop chains.\n\
-\n    \
-Returns notes (the live note, with chain) and errors (ids that failed).\n    \
-Other ids are still returned when one id is missing.\n    ";
+\n\
+Returns notes (the live note, with chain) and errors (ids that failed).\n\
+Other ids are still returned when one id is missing.\n";
 
 const NEW: &str = "\
 Create a note. Fails if the id already exists; never overwrites.\n\
-\n    \
-kind is decision, constraint, convention, context, format, finding, or\n    \
-attempt. summary is one line, at most 100 characters. body is the fact\n    \
-(keep it under ~300 words). tags is a list of slugs.\n    ";
+\n\
+kind is decision, constraint, convention, context, format, finding, or\n\
+attempt. summary is one line, at most 100 characters. body is the fact\n\
+(keep it under ~300 words). tags is a list of slugs.\n";
 
 const CHECK: &str = "\
 Lint every note in the store.\n\
-\n    \
-ok is false when there are errors. warnings (long bodies, missing author\n    \
-or updated) do not fail the check. errors and warnings are the same\n    \
-strings the CLI prints.\n    ";
+\n\
+ok is false when there are errors. warnings (long bodies, missing author\n\
+or updated) do not fail the check. errors and warnings are the same\n\
+strings the CLI prints.\n";

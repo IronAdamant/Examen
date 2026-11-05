@@ -204,7 +204,11 @@ npm packages are `@iron_adamant/relatum` and `@iron_adamant/relatum-<os>-<arch>`
 
 Tools: `relatum_init`, `relatum_ls`, `relatum_get`, `relatum_new`,
 `relatum_supersede`, `relatum_check`. `relatum_init` only creates a store in
-the current working directory or at `SWARMNOTES_DIR`.
+the current working directory or at `SWARMNOTES_DIR`. A tool result is a
+JSON object in `structuredContent.result`, repeated as compact JSON text.
+A tool error names the next step: with no store, call `relatum_init` or set
+`SWARMNOTES_DIR`; for a scope with no notes yet, write one with
+`relatum_new`; for an invalid id, the id grammar above.
 
 `.swarmnotes/` and `$SWARMNOTES_DIR` stay, so a store written by Examen 0.3.0
 or by the earlier SwarmNotes files loads with no migration. v0.2 made

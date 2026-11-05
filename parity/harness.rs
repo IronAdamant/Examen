@@ -899,6 +899,71 @@ fn arg(json_text: &str) -> Value {
     json::parse(json_text).expect("arguments json")
 }
 
+/// Relatum's intentional MCP output changes, folded on both sides:
+/// tool descriptions are compared after docstring dedent (Python 3.13 does
+/// that at compile time; 3.12 keeps the indentation), and a tool result's
+/// JSON text is compared as data, because Relatum writes it compact where
+/// Examen indented it. `structuredContent` is still compared as-is.
+fn fold_intentional(responses: &mut [Value]) {
+    for entry in responses.iter_mut() {
+        let Value::Array(pair) = entry else { continue };
+        let Some(reply) = pair.get_mut(1) else { continue };
+        let Some(result) = member(reply, "result") else { continue };
+        if let Some(Value::Array(tools)) = member(result, "tools") {
+            for tool in tools.iter_mut() {
+                if let Some(Value::String(text)) = member(tool, "description") {
+                    *text = dedent_doc(text);
+                }
+            }
+        }
+        if let Some(Value::Array(content)) = member(result, "content") {
+            for item in content.iter_mut() {
+                if let Some(Value::String(text)) = member(item, "text") {
+                    if let Ok(parsed) = json::parse(text) {
+                        *text = dumps_sorted(&parsed);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn member<'a>(value: &'a mut Value, key: &str) -> Option<&'a mut Value> {
+    match value {
+        Value::Object(pairs) => pairs.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v),
+        _ => None,
+    }
+}
+
+/// CPython 3.13's compile-time docstring cleanup: strip the first line's
+/// leading whitespace, remove the common indentation of the other lines,
+/// and empty whitespace-only lines.
+fn dedent_doc(text: &str) -> String {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let indent = |line: &str| line.len() - line.trim_start_matches([' ', '\t']).len();
+    let margin = lines
+        .iter()
+        .skip(1)
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| indent(line))
+        .min()
+        .unwrap_or(0);
+    lines
+        .iter()
+        .enumerate()
+        .map(|(i, line)| {
+            if i == 0 {
+                line.trim_start_matches([' ', '\t']).to_string()
+            } else if line.trim().is_empty() {
+                String::new()
+            } else {
+                line[margin.min(indent(line))..].to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn mcp_suite(python: &str, legacy: &Path, binary_mcp: &Path, diffs: &mut Diffs) {
     let py_dir = mkdtemp("py-mcp-");
     let rs_dir = mkdtemp("rs-mcp-");
@@ -932,8 +997,10 @@ fn mcp_suite(python: &str, legacy: &Path, binary_mcp: &Path, diffs: &mut Diffs) 
         .env("TZ", "UTC");
     let mut rs_cmd = Command::new(binary_mcp);
     rs_cmd.current_dir(&rs_dir).env("TZ", "UTC");
-    let (py_resp, py_err) = mcp_round(py_cmd, &calls_py);
-    let (rs_resp, rs_err) = mcp_round(rs_cmd, &calls_rs);
+    let (mut py_resp, py_err) = mcp_round(py_cmd, &calls_py);
+    let (mut rs_resp, rs_err) = mcp_round(rs_cmd, &calls_rs);
+    fold_intentional(&mut py_resp);
+    fold_intentional(&mut rs_resp);
     let folders = [py_dir.as_path(), rs_dir.as_path()];
     let py_norm = scrub_temp_names(&norm_mcp(&dumps_sorted(&json::arr(py_resp))), &folders);
     let rs_norm = scrub_temp_names(&norm_mcp(&dumps_sorted(&json::arr(rs_resp))), &folders);
