@@ -1,0 +1,16 @@
+Relatum stores pass-by-reference notes as markdown files under .swarmnotes/.
+Do not rename that directory. A note ID is its path without .md.
+
+When you spawn subagents, write each shared fact once and send a brief:
+
+Task: <what to do>
+Read first: <note IDs>
+Your scope: <directory under .swarmnotes/>
+Done when: <checkable end condition>
+
+Use these tools. They read and write the same files as the relatum CLI.
+relatum_get follows superseded_by. relatum_ls hides superseded notes unless
+include_superseded is true. If the working directory is not the project,
+the host must set SWARMNOTES_DIR to the .swarmnotes path.
+relatum_init creates a store only in the current working directory or at
+SWARMNOTES_DIR.

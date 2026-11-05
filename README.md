@@ -109,6 +109,35 @@ say what to call next. To teach agents the protocol, paste
 [AGENTS.snippet.md](AGENTS.snippet.md) into the project's `CLAUDE.md` or
 `AGENTS.md`, or install [skills/relatum](skills/relatum/SKILL.md).
 
+## Tool groups
+
+Each MCP tool belongs to one group, so an agent can drop the parts it does
+not use. Set these in the server's `env` (names are case-insensitive,
+comma-separated, and may be groups or tool names):
+
+- `RELATUM_TOOLS`: allowlist; only these are exposed, plus `core`. `all`
+  means everything.
+- `RELATUM_DISABLE`: hide these, applied after `RELATUM_TOOLS`.
+
+| Group | Tools | Overlaps with |
+|---|---|---|
+| `core` (always on) | `relatum_ls`, `relatum_get`, `relatum_new` | other suite `notes` groups (Trammel, wikifier) |
+| `revise` | `relatum_edit`, `relatum_supersede` | none |
+| `lint` | `relatum_check` | none |
+| `setup` | `relatum_init` | none |
+
+```json
+"env": { "RELATUM_DISABLE": "lint,setup" }
+```
+
+With neither set, the server is exactly as before. A hidden tool is absent
+from `tools/list`, and calling it anyway returns one line saying which
+variable to change. An unknown name, or trying to disable `core`, stops
+the server at startup with exit code 2 and a one-line message, so the host
+shows it as failed. The `tools/list` response is 6194 bytes with every
+group on and 3179 bytes with `RELATUM_TOOLS=core`. The CLI ignores both
+variables.
+
 ## Example
 
 ```sh

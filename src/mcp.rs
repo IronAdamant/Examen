@@ -2,6 +2,7 @@
 
 use crate::error::NoteError;
 use crate::json::{self, Value};
+use crate::mcp_groups::Surface;
 use crate::mcp_schema;
 use crate::mcp_support::{
     InvokeErr, bool_or, check_optional_str, optional_int, optional_string, optional_tags, path_is_null,
@@ -33,6 +34,15 @@ pub fn main_mcp(args: &[String]) -> i32 {
 }
 
 pub fn serve() -> i32 {
+    // A typo in RELATUM_TOOLS / RELATUM_DISABLE stops the server, so the host
+    // shows it as failed instead of serving a surprise surface.
+    let surface = match Surface::from_env() {
+        Ok(surface) => surface,
+        Err(line) => {
+            eprint_line(&line);
+            return 2;
+        }
+    };
     let stdin = std::io::stdin();
     let mut reader = std::io::BufReader::new(stdin.lock());
     let mut line = String::new();
@@ -45,7 +55,7 @@ pub fn serve() -> i32 {
                 if trimmed.is_empty() {
                     continue;
                 }
-                if let Some(response) = handle_line(trimmed) {
+                if let Some(response) = handle_line(trimmed, &surface) {
                     let mut stdout = std::io::stdout();
                     let _ = stdout.write_all(response.as_bytes());
                     let _ = stdout.write_all(b"\n");
@@ -57,7 +67,7 @@ pub fn serve() -> i32 {
     0
 }
 
-fn handle_line(line: &str) -> Option<String> {
+fn handle_line(line: &str, surface: &Surface) -> Option<String> {
     let value = match json::parse(line) {
         Ok(value) => value,
         Err(_) => {
@@ -77,10 +87,10 @@ fn handle_line(line: &str) -> Option<String> {
     };
     let params = value.get("params");
     let result = match method {
-        "initialize" => Ok(initialize(params)),
+        "initialize" => Ok(initialize(params, surface)),
         "ping" => Ok(json::obj(vec![])),
-        "tools/list" => Ok(json::obj(vec![("tools", mcp_schema::tools())])),
-        "tools/call" => call_tool(params),
+        "tools/list" => Ok(json::obj(vec![("tools", listed_tools(surface))])),
+        "tools/call" => call_tool(params, surface),
         "resources/list" => Ok(json::obj(vec![("resources", json::arr(vec![]))])),
         "prompts/list" => Ok(json::obj(vec![("prompts", json::arr(vec![]))])),
         other => Err(rpc_error(&id, -32601, "Method not found", Some(json::s(other)))),
@@ -91,7 +101,29 @@ fn handle_line(line: &str) -> Option<String> {
     }
 }
 
-fn initialize(params: Option<&Value>) -> Value {
+/// tools/list, minus switched-off tools.
+fn listed_tools(surface: &Surface) -> Value {
+    let Value::Array(tools) = mcp_schema::tools() else {
+        return mcp_schema::tools();
+    };
+    let prefix = format!("{}_", prog::NAME);
+    Value::Array(
+        tools
+            .into_iter()
+            .filter(|tool| {
+                let name = tool.get("name").and_then(Value::as_str).unwrap_or("");
+                surface.is_on(name.strip_prefix(&prefix).unwrap_or(name))
+            })
+            .collect(),
+    )
+}
+
+fn initialize(params: Option<&Value>, surface: &Surface) -> Value {
+    let mut instructions = mcp_schema::instructions();
+    if let Some(line) = surface.summary() {
+        instructions.push_str(&line);
+        instructions.push('\n');
+    }
     let version = params
         .and_then(|params| params.get("protocolVersion"))
         .and_then(Value::as_str)
@@ -117,7 +149,7 @@ fn initialize(params: Option<&Value>) -> Value {
                 ),
             ]),
         ),
-        ("instructions", json::s(&mcp_schema::instructions())),
+        ("instructions", json::s(&instructions)),
         ("protocolVersion", json::s(version)),
         (
             "serverInfo",
@@ -129,7 +161,7 @@ fn initialize(params: Option<&Value>) -> Value {
     ])
 }
 
-fn call_tool(params: Option<&Value>) -> Result<Value, String> {
+fn call_tool(params: Option<&Value>, surface: &Surface) -> Result<Value, String> {
     let name = params
         .and_then(|params| params.get("name"))
         .and_then(Value::as_str)
@@ -140,6 +172,11 @@ fn call_tool(params: Option<&Value>) -> Result<Value, String> {
         .unwrap_or_else(|| json::obj(vec![]));
     if name.is_empty() || !known_tool(name) {
         let text = format!("Unknown tool: {name}");
+        log_fail(name, &text);
+        return Ok(tool_error(&text));
+    }
+    let suffix = name.strip_prefix(&format!("{}_", prog::NAME)).unwrap_or(name);
+    if let Some(text) = surface.refusal(suffix) {
         log_fail(name, &text);
         return Ok(tool_error(&text));
     }
