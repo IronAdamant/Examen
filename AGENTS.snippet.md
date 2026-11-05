@@ -23,6 +23,8 @@ The storage directory stays `.swarmnotes/`.
 - Read every note in "Read first" before doing anything else.
 - You may list your own scope and `_shared` for sibling findings and failed
   attempts. Don't browse other scopes unless told to.
+- Picking work up later? List with `details` and keep the newest
+  `modified`; next time pass it as `since` to see only what changed.
 - Record what you learn as `finding` notes and what failed as `attempt` notes
   in your scope. In your report, cite their IDs instead of restating them.
 - Only edit notes you wrote. If you disagree with one, write a `finding` and
@@ -32,7 +34,7 @@ The storage directory stays `.swarmnotes/`.
 `.swarmnotes/` files as the CLI:
 
 ```
-relatum_ls        scope, kind, include_superseded
+relatum_ls        scope, kind, tag, include_superseded; limit, since, details
 relatum_get       one or more IDs; follows superseded notes
 relatum_new       id, kind, summary, body, author, tags
 relatum_supersede old, new
@@ -43,7 +45,7 @@ relatum_init      create .swarmnotes/ if it is missing (cwd or SWARMNOTES_DIR on
 Otherwise use the CLI (`relatum`; `swarmnotes` is the same command):
 
 ```
-relatum ls [scope] [--kind K] [--tag T] [--all]
+relatum ls [scope] [--kind K] [--tag T] [--all] [--limit N] [--since TIME] [--details]
 relatum get ID [ID...]
 relatum new ID --kind K --summary "..." --author NAME --body "..."
 relatum supersede OLD NEW

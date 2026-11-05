@@ -154,13 +154,43 @@ pub(crate) fn validate_ls(tool: &str, args: &Value) -> Result<(), InvokeErr> {
     check_optional_str(tool, args, "scope")?;
     check_optional_str(tool, args, "kind")?;
     check_optional_str(tool, args, "tag")?;
-    match lookup(args, "include_superseded") {
-        None | Some(Value::Bool(_)) => Ok(()),
+    check_optional_str(tool, args, "since")?;
+    for key in ["include_superseded", "details"] {
+        match lookup(args, key) {
+            None | Some(Value::Bool(_)) => {}
+            Some(value) => {
+                return Err(type_error(
+                    tool,
+                    key,
+                    "bool_type",
+                    "Input should be a valid boolean",
+                    value,
+                ))
+            }
+        }
+    }
+    optional_int(tool, args, "limit").map(|_| ())
+}
+
+/// An optional integer argument. `None` when absent or null.
+pub(crate) fn optional_int(tool: &str, args: &Value, key: &str) -> Result<Option<i64>, InvokeErr> {
+    match lookup(args, key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(text)) => match text.parse::<i64>() {
+            Ok(n) => Ok(Some(n)),
+            Err(_) => Err(type_error(
+                tool,
+                key,
+                "int_type",
+                "Input should be a valid integer",
+                &Value::Number(text.clone()),
+            )),
+        },
         Some(value) => Err(type_error(
             tool,
-            "include_superseded",
-            "bool_type",
-            "Input should be a valid boolean",
+            key,
+            "int_type",
+            "Input should be a valid integer",
             value,
         )),
     }

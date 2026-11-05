@@ -55,6 +55,9 @@ and the MCP responses, stderr log, and files. It normalises only these:
 - The final component of each temp directory becomes `$DIR`.
 - CR and LF are folded on CLI pipes and MCP stderr. On Windows both
   programs write CRLF there, as CPython's text-mode streams do.
+- `relatum_ls`'s opt-in `limit`, `since`, and `details` arguments are
+  dropped from its input schema. `relatum ls -h` lists the matching CLI
+  flags; its usage line, which argparse errors print, is unchanged.
 - MCP tool descriptions are compared after docstring dedent. Relatum sends
   them unindented; Examen's carry Python 3.12 docstring indentation (3.13
   strips it).

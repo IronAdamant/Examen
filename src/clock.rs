@@ -140,3 +140,66 @@ fn civil_from_days(z: i64) -> (i32, u32, u32) {
     let y = if m <= 2 { y + 1 } else { y };
     (y as i32, m, d)
 }
+
+/// Howard Hinnant's days_from_civil: days since 1970-01-01.
+fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
+    let y = i64::from(if m <= 2 { y - 1 } else { y });
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = (y - era * 400) as u64;
+    let m = u64::from(m);
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + u64::from(d) - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146_097 + doe as i64 - 719_468
+}
+
+/// Seconds since the Unix epoch for `YYYY-MM-DD` (midnight UTC) or
+/// `YYYY-MM-DDTHH:MM:SSZ`. `None` for anything else.
+pub fn parse_utc(text: &str) -> Option<i64> {
+    let (date, time) = match text.len() {
+        10 => (text, None),
+        20 if text.as_bytes()[10] == b'T' && text.ends_with('Z') => (&text[..10], Some(&text[11..19])),
+        _ => return None,
+    };
+    if !valid_date(date) {
+        return None;
+    }
+    let y: i32 = date[0..4].parse().ok()?;
+    let m: u32 = date[5..7].parse().ok()?;
+    let d: u32 = date[8..10].parse().ok()?;
+    let mut secs = days_from_civil(y, m, d) * 86_400;
+    if let Some(time) = time {
+        let b = time.as_bytes();
+        if b[2] != b':' || b[5] != b':' {
+            return None;
+        }
+        let part = |range: std::ops::Range<usize>| -> Option<i64> {
+            let field = &time[range];
+            field.bytes().all(|c| c.is_ascii_digit()).then(|| field.parse().ok())?
+        };
+        let (h, mi, s) = (part(0..2)?, part(3..5)?, part(6..8)?);
+        if h > 23 || mi > 59 || s > 59 {
+            return None;
+        }
+        secs += h * 3600 + mi * 60 + s;
+    }
+    Some(secs)
+}
+
+/// `YYYY-MM-DDTHH:MM:SSZ` for seconds since the Unix epoch.
+pub fn format_utc(secs: i64) -> String {
+    let (y, m, d) = civil_from_days(secs.div_euclid(86_400));
+    let rest = secs.rem_euclid(86_400);
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rest / 3600,
+        rest % 3600 / 60,
+        rest % 60
+    )
+}
+
+/// Whole seconds since the Unix epoch; earlier times count as 0.
+pub fn epoch_secs(time: std::time::SystemTime) -> i64 {
+    time.duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}

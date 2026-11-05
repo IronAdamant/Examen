@@ -149,9 +149,53 @@ fn ls_schema() -> Value {
             ("kind", optional_str("Kind")),
             ("include_superseded", bool_prop("Include Superseded")),
             ("tag", optional_str("Tag")),
+            (
+                "limit",
+                described(
+                    optional_typed("Limit", "integer"),
+                    "Return at most this many notes. When notes are left out, the result                      has more (how many).",
+                ),
+            ),
+            (
+                "since",
+                described(
+                    optional_str("Since"),
+                    "Only notes written or changed at or after this UTC time:                      2026-11-05 or 2026-11-05T14:30:00Z. Use a modified value from an                      earlier details listing to see what is new.",
+                ),
+            ),
+            (
+                "details",
+                described(
+                    bool_prop("Details"),
+                    "Also return author, updated, and modified (file time, UTC) per note.",
+                ),
+            ),
         ]),
         &[],
     )
+}
+
+/// A property schema with a description, for arguments an LLM fills.
+fn described(property: Value, description: &str) -> Value {
+    let Value::Object(mut pairs) = property else {
+        return property;
+    };
+    pairs.insert(0, ("description".to_string(), json::s(description)));
+    Value::Object(pairs)
+}
+
+fn optional_typed(title: &str, type_name: &str) -> Value {
+    json::obj(vec![
+        (
+            "anyOf",
+            json::arr(vec![
+                json::obj(vec![("type", json::s(type_name))]),
+                json::obj(vec![("type", json::s("null"))]),
+            ]),
+        ),
+        ("default", Value::Null),
+        ("title", json::s(title)),
+    ])
 }
 
 fn get_schema() -> Value {

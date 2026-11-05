@@ -192,6 +192,15 @@ Warnings (printed, exit 0 when there are no errors):
 
 `relatum ls` hides `superseded` notes unless `--all`. With `--all`, a
 superseded row is marked `[-> <id>]`. Drafts are marked `[draft]`.
+Opt-in, and absent from the default output: `--limit N` prints at most N
+rows and then `... K more (...)`; `--since TIME` keeps notes whose file
+was modified at or after TIME, a UTC `YYYY-MM-DD` or
+`YYYY-MM-DDTHH:MM:SSZ` (every write sets it, so this is "written or
+changed since"); `--details` appends `by <author>` and `at <modified>`.
+The note format has no creation time; `updated` is the date of the last
+edit. `relatum_ls` takes the same `limit`, `since`, and `details`; it
+reports left-out rows as `more` and adds `author`, `updated`, and
+`modified` per note.
 `relatum get` prints the live note at the end of the chain and the path it
 followed.
 

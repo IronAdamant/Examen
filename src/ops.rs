@@ -15,6 +15,49 @@ pub struct Row {
     pub summary: String,
     pub status: String,
     pub superseded_by: Option<String>,
+    /// Filled only when `LsQuery::details` is set.
+    pub details: Option<Details>,
+}
+
+/// Who wrote a note and when, for `ls` with details.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Details {
+    pub author: Option<String>,
+    pub updated: Option<String>,
+    /// File modification time, `YYYY-MM-DDTHH:MM:SSZ`.
+    pub modified: String,
+}
+
+/// `ls` arguments beyond scope/kind/tag/all. The defaults list exactly
+/// what `list_notes` lists.
+#[derive(Debug, Clone, Default)]
+pub struct LsQuery {
+    pub scope: String,
+    pub kind: Option<String>,
+    pub tag: Option<String>,
+    pub include_superseded: bool,
+    /// Only notes whose file changed at or after this many seconds since
+    /// the Unix epoch (UTC).
+    pub since: Option<i64>,
+    /// At most this many rows; the rest are counted in `Listing::more`.
+    pub limit: Option<usize>,
+    pub details: bool,
+}
+
+pub struct Listing {
+    pub rows: Vec<Row>,
+    /// Matching notes left out by `limit`.
+    pub more: usize,
+}
+
+/// `--since` / `since`: a UTC date or date-time.
+pub fn parse_since(text: &str) -> NoteResult<i64> {
+    clock::parse_utc(text).ok_or_else(|| {
+        NoteError::new(format!(
+            "since must be YYYY-MM-DD or YYYY-MM-DDTHH:MM:SSZ (UTC), not {}",
+            py_repr(text)
+        ))
+    })
 }
 
 pub fn parse_tags(tags: Option<TagsIn>) -> NoteResult<Vec<String>> {
@@ -115,6 +158,19 @@ pub fn list_notes(
     tag: Option<&str>,
     include_superseded: bool,
 ) -> NoteResult<Vec<Row>> {
+    let query = LsQuery {
+        scope: scope.to_string(),
+        kind: kind.map(str::to_string),
+        tag: tag.map(str::to_string),
+        include_superseded,
+        ..LsQuery::default()
+    };
+    Ok(list_notes_with(root, &query)?.rows)
+}
+
+pub fn list_notes_with(root: &Path, query: &LsQuery) -> NoteResult<Listing> {
+    let kind = query.kind.as_deref();
+    let tag = query.tag.as_deref();
     if let Some(kind) = kind {
         if !KINDS.contains(&kind) {
             return Err(NoteError::new(format!(
@@ -128,15 +184,22 @@ pub fn list_notes(
             return Err(NoteError::new(format!("invalid tag: {tag}")));
         }
     }
-    let mut rows = Vec::new();
-    let found = store::iter_notes(root, scope.trim_matches('/'))?;
-    let paths: Vec<&Path> = found.iter().map(|(_, path)| path.as_path()).collect();
+    if query.limit == Some(0) {
+        return Err(NoteError::new("limit must be at least 1"));
+    }
+    let timed = query.since.is_some() || query.details;
+    let mut found = store::walk_notes(root, query.scope.trim_matches('/'), timed)?;
+    if let Some(since) = query.since {
+        // Filter on the walk's timestamps, before any note is opened.
+        found.retain(|note| note.modified.map(clock::epoch_secs).unwrap_or(0) >= since);
+    }
+    let paths: Vec<&Path> = found.iter().map(|note| note.path.as_path()).collect();
     let texts = meta::read_note_texts(&paths);
-    for ((note_id, _), text) in found.iter().zip(texts) {
-        let note_id = note_id.clone();
+    let mut rows = Vec::new();
+    for (entry, text) in found.iter().zip(texts) {
         let note = meta::parse(&text?);
         let status = note.get_str("status").unwrap_or("active").to_string();
-        if status == "superseded" && !include_superseded {
+        if status == "superseded" && !query.include_superseded {
             continue;
         }
         if let Some(kind) = kind {
@@ -159,15 +222,26 @@ pub fn list_notes(
         } else {
             None
         };
+        let details = query.details.then(|| Details {
+            author: note.get_str("author").filter(|a| !a.is_empty()).map(str::to_string),
+            updated: note.get_str("updated").filter(|u| !u.is_empty()).map(str::to_string),
+            modified: clock::format_utc(entry.modified.map(clock::epoch_secs).unwrap_or(0)),
+        });
         rows.push(Row {
-            id: note_id,
+            id: entry.id.clone(),
             kind: note.get_str("kind").unwrap_or("?").to_string(),
             summary: note.get_str("summary").unwrap_or("").to_string(),
             status,
             superseded_by,
+            details,
         });
     }
-    Ok(rows)
+    let mut more = 0;
+    if let Some(limit) = query.limit {
+        more = rows.len().saturating_sub(limit);
+        rows.truncate(limit);
+    }
+    Ok(Listing { rows, more })
 }
 
 pub struct Resolved {
@@ -396,9 +470,23 @@ pub fn format_ls(rows: &[Row]) -> String {
         out.push_str("  ");
         out.push_str(&row.summary);
         out.push_str(&mark);
+        if let Some(details) = &row.details {
+            if let Some(author) = &details.author {
+                out.push_str(&format!("  by {author}"));
+            }
+            out.push_str(&format!("  at {}", details.modified));
+        }
         out.push('\n');
     }
     out
+}
+
+/// The line `ls --limit` prints after the rows when it left notes out.
+pub fn format_more(more: usize) -> String {
+    if more == 0 {
+        return String::new();
+    }
+    format!("... {more} more (raise --limit, narrow the scope, or use --since)\n")
 }
 
 pub fn format_get(resolved: &Resolved) -> String {

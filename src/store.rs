@@ -5,6 +5,7 @@ use crate::grammar::{self, DIR_NAME};
 use crate::meta::{self, MetaVal, Note};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 pub fn find_root() -> NoteResult<PathBuf> {
     match locate()? {
@@ -86,21 +87,43 @@ pub fn load(root: &Path, note_id: &str) -> NoteResult<Note> {
 }
 
 pub fn iter_notes(root: &Path, scope: &str) -> NoteResult<Vec<(String, PathBuf)>> {
+    Ok(walk_notes(root, scope, false)?
+        .into_iter()
+        .map(|found| (found.id, found.path))
+        .collect())
+}
+
+/// A note file found by a store walk.
+pub struct Found {
+    pub id: String,
+    pub path: PathBuf,
+    /// The file's modification time, when the walk was asked for it.
+    pub modified: Option<SystemTime>,
+}
+
+/// Every `*.md` under a scope, sorted by path. With `timed`, each entry
+/// carries its modification time (free from the directory listing on
+/// Windows, one lstat per file elsewhere).
+pub fn walk_notes(root: &Path, scope: &str, timed: bool) -> NoteResult<Vec<Found>> {
     let scope = scope.trim_matches('/');
     let base = py_join(root, scope);
     if !base.is_dir() {
         return Err(NoteError::new(format!("no such scope: {scope}")));
     }
     let mut files = Vec::new();
-    walk_md(&base, &mut files)?;
-    files.sort_by(|a, b| a.components().cmp(b.components()));
+    walk_md(&base, timed, &mut files)?;
+    files.sort_by(|a, b| a.0.components().cmp(b.0.components()));
     Ok(files
         .into_iter()
-        .map(|path| (note_id_of(root, &path), path))
+        .map(|(path, modified)| Found {
+            id: note_id_of(root, &path),
+            path,
+            modified,
+        })
         .collect())
 }
 
-fn walk_md(dir: &Path, out: &mut Vec<PathBuf>) -> NoteResult<()> {
+fn walk_md(dir: &Path, timed: bool, out: &mut Vec<(PathBuf, Option<SystemTime>)>) -> NoteResult<()> {
     let entries = fs::read_dir(dir).map_err(|err| NoteError::new(err.to_string()))?;
     for entry in entries {
         let entry = entry.map_err(|err| NoteError::new(err.to_string()))?;
@@ -111,14 +134,24 @@ fn walk_md(dir: &Path, out: &mut Vec<PathBuf>) -> NoteResult<()> {
             .map_err(|err| NoteError::new(err.to_string()))?;
         if ft.is_symlink() {
             if path.is_file() && is_md_name(&name) {
-                out.push(path);
+                let modified = if timed {
+                    fs::metadata(&path).and_then(|meta| meta.modified()).ok()
+                } else {
+                    None
+                };
+                out.push((path, modified));
             }
             continue;
         }
         if ft.is_dir() {
-            walk_md(&path, out)?;
+            walk_md(&path, timed, out)?;
         } else if ft.is_file() && is_md_name(&name) {
-            out.push(path);
+            let modified = if timed {
+                entry.metadata().and_then(|meta| meta.modified()).ok()
+            } else {
+                None
+            };
+            out.push((path, modified));
         }
     }
     Ok(())

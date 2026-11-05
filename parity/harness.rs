@@ -900,8 +900,10 @@ fn arg(json_text: &str) -> Value {
 }
 
 /// Relatum's intentional MCP output changes, folded on both sides:
-/// tool descriptions are compared after docstring dedent (Python 3.13 does
-/// that at compile time; 3.12 keeps the indentation), and a tool result's
+/// relatum_ls's opt-in limit, since, and details arguments are dropped from
+/// its input schema, tool descriptions are compared after docstring dedent
+/// (Python 3.13 does that at compile time; 3.12 keeps the indentation), and
+/// a tool result's
 /// JSON text is compared as data, because Relatum writes it compact where
 /// Examen indented it. `structuredContent` is still compared as-is.
 fn fold_intentional(responses: &mut [Value]) {
@@ -913,6 +915,13 @@ fn fold_intentional(responses: &mut [Value]) {
             for tool in tools.iter_mut() {
                 if let Some(Value::String(text)) = member(tool, "description") {
                     *text = dedent_doc(text);
+                }
+                let is_ls = matches!(member(tool, "name"), Some(Value::String(name)) if name.ends_with("_ls"));
+                if is_ls {
+                    let properties = member(tool, "inputSchema").and_then(|schema| member(schema, "properties"));
+                    if let Some(Value::Object(pairs)) = properties {
+                        pairs.retain(|(key, _)| !RELATUM_LS_ARGS.contains(&key.as_str()));
+                    }
                 }
             }
         }
@@ -927,6 +936,9 @@ fn fold_intentional(responses: &mut [Value]) {
         }
     }
 }
+
+/// Opt-in relatum_ls arguments Examen does not have.
+const RELATUM_LS_ARGS: [&str; 3] = ["limit", "since", "details"];
 
 fn member<'a>(value: &'a mut Value, key: &str) -> Option<&'a mut Value> {
     match value {

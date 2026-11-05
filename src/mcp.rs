@@ -4,7 +4,7 @@ use crate::error::NoteError;
 use crate::json::{self, Value};
 use crate::mcp_schema;
 use crate::mcp_support::{
-    InvokeErr, bool_or, check_optional_str, optional_string, optional_tags, path_is_null,
+    InvokeErr, bool_or, check_optional_str, optional_int, optional_string, optional_tags, path_is_null,
     require_present_str, require_str, require_string_list, store_for_init, string_or, type_error,
     validate_ls,
 };
@@ -185,10 +185,27 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
         let kind = optional_string(args, "kind").filter(|text| !text.is_empty());
         let tag = optional_string(args, "tag").filter(|text| !text.is_empty());
         let include = bool_or(args, "include_superseded", false);
+        let details = bool_or(args, "details", false);
+        let limit = optional_int(name, args, "limit")?.map(|n| usize::try_from(n).unwrap_or(0));
+        let since = optional_string(args, "since")
+            .filter(|text| !text.is_empty())
+            .map(|text| ops::parse_since(&text))
+            .transpose()
+            .map_err(note)?;
         let root = tool_root()?;
         check_scope(&root, scope)?;
-        let rows = ops::list_notes(&root, scope, kind.as_deref(), tag.as_deref(), include).map_err(note)?;
-        let notes = rows
+        let query = ops::LsQuery {
+            scope: scope.to_string(),
+            kind,
+            tag,
+            include_superseded: include,
+            since,
+            limit,
+            details,
+        };
+        let listing = ops::list_notes_with(&root, &query).map_err(note)?;
+        let notes = listing
+            .rows
             .into_iter()
             .map(|row| {
                 let mut pairs = vec![
@@ -200,10 +217,23 @@ fn invoke(name: &str, args: &Value) -> Result<Value, InvokeErr> {
                 if let Some(next) = row.superseded_by {
                     pairs.push(("superseded_by", json::s(&next)));
                 }
+                if let Some(details) = row.details {
+                    if let Some(author) = details.author {
+                        pairs.push(("author", json::s(&author)));
+                    }
+                    if let Some(updated) = details.updated {
+                        pairs.push(("updated", json::s(&updated)));
+                    }
+                    pairs.push(("modified", json::s(&details.modified)));
+                }
                 json::obj(pairs)
             })
             .collect();
-        return Ok(json::obj(vec![("notes", json::arr(notes))]));
+        let mut result = vec![("notes", json::arr(notes))];
+        if listing.more > 0 {
+            result.push(("more", Value::Number(listing.more.to_string())));
+        }
+        return Ok(json::obj(result));
     }
     if name == prog::tool("get") {
         let ids = require_string_list(name, args, "ids")?;
